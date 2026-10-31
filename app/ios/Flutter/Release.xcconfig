@@ -1,0 +1,3 @@
+#include "Generated.xcconfig"
+#include "../Covenant.xcconfig"
+#include? "../Team.xcconfig"

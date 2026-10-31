@@ -1,0 +1,3 @@
+// Defaults, override any of these in Team.xcconfig.
+COVENANT_BUNDLE_ID = se.sanctorum.reliquary
+COVENANT_HANDOFF_GROUP = se.sanctorum.handoff
