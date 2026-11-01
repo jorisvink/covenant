@@ -200,10 +200,11 @@ JNI(keksInfo)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray in)
 
 	(void)cls;
 
-	if (jni_bytes_copy(env, in, &sealed) == -1)
+	if ((cov = covenant_ctx(ctx)) == NULL)
 		return (NULL);
 
-	cov = covenant_ctx(ctx);
+	if (jni_bytes_copy(env, in, &sealed) == -1)
+		return (NULL);
 
 	if (covenant_keks_info(cov, sealed.data, sealed.length, &info) == -1) {
 		jni_bytes_free(&sealed);
@@ -238,7 +239,11 @@ JNI(keksCheck)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 
 	(void)cls;
 
-	if (jni_bytes_copy(env, secret, &key) == -1)
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (JNI_FALSE);
+
+	if (jni_bytes_copy_exact(env, ctx, secret,
+	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (JNI_FALSE);
 
 	if (jni_bytes_copy_exact(env, ctx, in,
@@ -246,8 +251,6 @@ JNI(keksCheck)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 		jni_bytes_free(&key);
 		return (JNI_FALSE);
 	}
-
-	cov = covenant_ctx(ctx);
 
 	ret = covenant_keks_check(cov,
 	    key.data, key.length, sealed.data, sealed.length);
@@ -274,11 +277,14 @@ JNI(keksGenerate)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 
 	(void)cls;
 
-	if (jni_bytes_copy(env, secret, &key) == -1)
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
+	if (jni_bytes_copy_exact(env, ctx, secret,
+	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
 
 	out = NULL;
-	cov = covenant_ctx(ctx);
 
 	covenant_keks_generate(cov, key.data, key.length,
 	    flock, sealed, sizeof(sealed));
@@ -304,14 +310,17 @@ JNI(keksRenew)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 	PRECOND(env != NULL);
 
 	(void)cls;
-	cov = covenant_ctx(ctx);
+
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
 
 	if (kek < 1 || kek > COVENANT_KEK_COUNT) {
 		cov->last_error = COVENANT_ERROR_PARAMETER;
 		return (NULL);
 	}
 
-	if (jni_bytes_copy(env, secret, &key) == -1)
+	if (jni_bytes_copy_exact(env, ctx, secret,
+	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
 
 	if (jni_bytes_copy_exact(env, ctx, in,
@@ -349,6 +358,9 @@ JNI(keksUpgrade)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 
 	(void)cls;
 
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
 	if (jni_bytes_copy_exact(env, ctx, secret,
 	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
@@ -360,7 +372,6 @@ JNI(keksUpgrade)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 	}
 
 	out = NULL;
-	cov = covenant_ctx(ctx);
 
 	if (covenant_keks_upgrade(cov, key.data, key.length,
 	    sealed.data, sealed.length, upgraded, sizeof(upgraded)) == 0)
@@ -390,7 +401,9 @@ JNI(ambryBundle)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 	PRECOND(env != NULL);
 
 	(void)cls;
-	cov = covenant_ctx(ctx);
+
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
 
 	if (days < 1 || days > COVENANT_AMBRY_DAYS_MAX || meta == NULL ||
 	    (*env)->GetArrayLength(env, meta) != 2) {
@@ -403,7 +416,8 @@ JNI(ambryBundle)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 		return (NULL);
 	}
 
-	if (jni_bytes_copy(env, secret, &key) == -1) {
+	if (jni_bytes_copy_exact(env, ctx, secret,
+	    COVENANT_VAULT_KEY_LEN, &key) == -1) {
 		free(bundle);
 		return (NULL);
 	}
@@ -481,10 +495,11 @@ JNI(backupInfo)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray in)
 
 	(void)cls;
 
-	if (jni_bytes_copy(env, in, &backup) == -1)
+	if ((cov = covenant_ctx(ctx)) == NULL)
 		return (NULL);
 
-	cov = covenant_ctx(ctx);
+	if (jni_bytes_copy(env, in, &backup) == -1)
+		return (NULL);
 
 	if (covenant_backup_info(cov,
 	    backup.data, backup.length, &info) == -1) {
@@ -520,7 +535,9 @@ JNI(backupVerify)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray root,
 	PRECOND(env != NULL);
 
 	(void)cls;
-	cov = covenant_ctx(ctx);
+
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (JNI_FALSE);
 
 	if (jni_bytes_copy_exact(env, ctx, root,
 	    COVENANT_BACKUP_ROOT_LEN, &key) == -1)
@@ -557,11 +574,13 @@ JNI(backupKeygen)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret)
 
 	(void)cls;
 
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
 	if (jni_bytes_copy_exact(env, ctx, secret,
 	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
 
-	cov = covenant_ctx(ctx);
 	len = COVENANT_BACKUP_ROOT_LEN + COVENANT_BACKUP_RECIPIENT_LEN;
 
 	covenant_lock();
@@ -599,6 +618,9 @@ JNI(backupRecipient)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 
 	(void)cls;
 
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
 	if (jni_bytes_copy_exact(env, ctx, secret,
 	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
@@ -608,8 +630,6 @@ JNI(backupRecipient)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 		jni_bytes_free(&key);
 		return (NULL);
 	}
-
-	cov = covenant_ctx(ctx);
 
 	covenant_backup_recipient(cov, key.data, key.length,
 	    rk.data, rk.length, rcpt, sizeof(rcpt));
@@ -638,6 +658,9 @@ JNI(backupSeal)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 
 	(void)cls;
 
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
 	if (jni_bytes_copy_exact(env, ctx, secret,
 	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
@@ -654,8 +677,6 @@ JNI(backupSeal)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 		jni_bytes_free(&rcpt);
 		return (NULL);
 	}
-
-	cov = covenant_ctx(ctx);
 
 	if ((backup = malloc(COVENANT_BACKUP_LEN)) == NULL) {
 		cov->last_error = COVENANT_ERROR_SYSTEM;
@@ -696,6 +717,9 @@ JNI(backupRestore)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 
 	(void)cls;
 
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
 	if (jni_bytes_copy_exact(env, ctx, secret,
 	    COVENANT_VAULT_KEY_LEN, &key) == -1)
 		return (NULL);
@@ -713,7 +737,6 @@ JNI(backupRestore)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 	}
 
 	out = NULL;
-	cov = covenant_ctx(ctx);
 
 	if (backup.length != COVENANT_BACKUP_LEN &&
 	    backup.length != COVENANT_BACKUP_V2_LEN) {
@@ -754,7 +777,8 @@ jni_device_provision(JNIEnv *env, jlong ctx, jbyteArray secret, jbyteArray in,
 
 	PRECOND(env != NULL);
 
-	cov = covenant_ctx(ctx);
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
 
 	if (kek < 1 || kek > COVENANT_KEK_COUNT ||
 	    cathedral == NULL || config == NULL) {
@@ -771,7 +795,10 @@ jni_device_provision(JNIEnv *env, jlong ctx, jbyteArray secret, jbyteArray in,
 	}
 
 	len = qr ? COVENANT_QR_MAX_LEN : COVENANT_CONFIG_MAX_LEN;
+
+	covenant_lock();
 	buf = covenant_alloc(len);
+	covenant_unlock();
 
 	memset(&dev, 0, sizeof(dev));
 	dev.secret = key.data;
@@ -806,7 +833,10 @@ jni_device_provision(JNIEnv *env, jlong ctx, jbyteArray secret, jbyteArray in,
 
 	jni_bytes_free(&key);
 	jni_bytes_free(&sealed);
+
+	covenant_lock();
 	covenant_free(buf, len);
+	covenant_unlock();
 
 	return (out);
 }

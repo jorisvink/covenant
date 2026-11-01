@@ -66,7 +66,7 @@ int
 covenant_cosk_new(struct covenant *ctx, u_int32_t *handle, void *pk,
     size_t pk_len)
 {
-	int			idx;
+	int			idx, other;
 	struct covenant_cosk	*cosk;
 
 	if (ctx == NULL)
@@ -86,8 +86,8 @@ covenant_cosk_new(struct covenant *ctx, u_int32_t *handle, void *pk,
 	}
 
 	if (idx == COVENANT_COSK_MAX) {
-		covenant_unlock();
 		ctx->last_error = COVENANT_ERROR_COSK_FULL;
+		covenant_unlock();
 		return (-1);
 	}
 
@@ -99,16 +99,20 @@ covenant_cosk_new(struct covenant *ctx, u_int32_t *handle, void *pk,
 		if (cosk->handle == 0)
 			continue;
 
-		if (provision_cosk_lookup(ctx, cosk->handle) != cosk)
-			continue;
+		for (other = 0; other < COVENANT_COSK_MAX; other++) {
+			if (other != idx &&
+			    ctx->cosk[other].handle == cosk->handle)
+				break;
+		}
 
-		break;
+		if (other == COVENANT_COSK_MAX)
+			break;
 	}
 
 	if (crypto_sign_keypair(pk, cosk->sk) != 0) {
 		nyfe_mem_zero(cosk, sizeof(*cosk));
-		covenant_unlock();
 		ctx->last_error = COVENANT_ERROR_INTERNAL;
+		covenant_unlock();
 		return (-1);
 	}
 
@@ -132,8 +136,8 @@ covenant_cosk_drop(struct covenant *ctx, u_int32_t handle)
 	covenant_lock();
 
 	if ((cosk = provision_cosk_lookup(ctx, handle)) == NULL) {
-		covenant_unlock();
 		ctx->last_error = COVENANT_ERROR_NO_COSK;
+		covenant_unlock();
 		return (-1);
 	}
 
@@ -384,6 +388,9 @@ provision_device_config(struct covenant *ctx, const struct covenant_device *dev,
  * Make sure the public part is a vigil configuration without keys for
  * the flock the KEKs belong to, with an spi that starts with the KEK and
  * with exactly one instance, which is copied into name.
+ *
+ * Every line must be exactly "option value" with a single space between
+ * them, vigil skips whitespace we would otherwise not see options behind.
  */
 static int
 provision_config_check(struct covenant *ctx, const char *public,
@@ -444,7 +451,9 @@ provision_config_check(struct covenant *ctx, const char *public,
 		if (line[0] == '\0')
 			continue;
 
-		if ((opt = strchr(line, ' ')) == NULL) {
+		if ((opt = strchr(line, ' ')) == NULL || opt == line ||
+		    opt[1] == '\0' || opt[1] == ' ' ||
+		    line[strlen(line) - 1] == ' ') {
 			ctx->last_error = COVENANT_ERROR_CONFIG;
 			return (-1);
 		}

@@ -182,9 +182,8 @@ covenant_backup_seal(struct covenant *ctx, const void *secret, size_t len,
 	PRECOND(out != NULL);
 	PRECOND(out_len == COVENANT_BACKUP_LEN);
 
-	nyfe_zeroize_register(mac_key, sizeof(mac_key));
-
 	covenant_lock();
+	nyfe_zeroize_register(mac_key, sizeof(mac_key));
 
 	if (backup_recipient_open(ctx, secret, len, recipient, recipient_len,
 	    &rcpt, mac_key, sizeof(mac_key)) == -1) {

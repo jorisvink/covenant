@@ -40,6 +40,7 @@ covenant_keks_generate(struct covenant *ctx, const void *secret, size_t len,
 	struct covenant_keks	*keks;
 
 	PRECOND(ctx != NULL);
+	PRECOND(secret != NULL);
 	PRECOND(len == COVENANT_VAULT_KEY_LEN);
 	PRECOND(out != NULL);
 	PRECOND(out_len == COVENANT_KEKS_SEALED_LEN);

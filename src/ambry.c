@@ -60,7 +60,7 @@ covenant_ambry_bundle(struct covenant *ctx, const void *secret, size_t len,
 	PRECOND(len == COVENANT_VAULT_KEY_LEN);
 	PRECOND(in != NULL);
 	PRECOND(in_len == COVENANT_KEKS_SEALED_LEN);
-	PRECOND(days > 0 && days < COVENANT_AMBRY_DAYS_MAX);
+	PRECOND(days > 0 && days <= COVENANT_AMBRY_DAYS_MAX);
 	PRECOND(out != NULL);
 	PRECOND(out_len == COVENANT_AMBRY_LEN);
 	PRECOND(generation != NULL);

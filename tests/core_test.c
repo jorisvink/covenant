@@ -206,6 +206,15 @@ test_ambry_bundle(const u_int8_t *secret, const u_int8_t *sealed,
 	CHECK(be32toh(hdr.generation) == gen);
 	CHECK(be16toh(hdr.expires) == expires);
 
+	CHECK(covenant_ambry_bundle(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    sealed, COVENANT_KEKS_SEALED_LEN, COVENANT_AMBRY_DAYS_MAX, bundle,
+	    COVENANT_AMBRY_LEN, &gen, &expires) == 0);
+
+	CHECK(covenant_ambry_bundle(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    sealed, COVENANT_KEKS_SEALED_LEN, 30, bundle, COVENANT_AMBRY_LEN,
+	    &gen, &expires) == 0);
+	memcpy(&hdr, bundle, sizeof(hdr));
+
 	CHECK((ours = malloc(COVENANT_KEKS_DATA_LEN)) != NULL);
 
 	covenant_lock();
@@ -354,6 +363,30 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
 	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0c00\t\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+
+	/* Options vigil would find behind whitespace we do not skip. */
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n"
+	    " cathedral_flock 493abf95a07e0d00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n  spi 0d\n",
+	    out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi  0d\n"
+	    "cathedral_flock 493abf95a07e0c00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop \nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n \n", out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
 
 	/* Too small to hold it all. */
