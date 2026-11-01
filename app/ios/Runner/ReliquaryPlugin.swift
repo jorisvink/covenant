@@ -423,12 +423,12 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
 
 enum Handoff {
     private static let url = URL(string: "vigil://import")!
-    private static let service = "se.sanctorum.handoff"
+    private static let service =
+        Bundle.main.object(forInfoDictionaryKey: "CovenantHandoffGroup") as? String ?? ""
 
     private static var group: String {
         let prefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String ?? ""
-        let name = Bundle.main.object(forInfoDictionaryKey: "CovenantHandoffGroup") as? String ?? ""
-        return prefix + name
+        return prefix + service
     }
 
     private static var query: [String: Any] {
@@ -550,7 +550,7 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
 
 /// The API session, in the keychain for this device only.
 enum SessionStore {
-    private static let service = "se.sanctorum.reliquary.session"
+    private static let service = (Bundle.main.bundleIdentifier ?? "") + ".session"
 
     private static var query: [String: Any] {
         [
@@ -593,7 +593,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
     private static let channel = "se.sanctorum.reliquary/core"
     private static let prefsKey = "prefs"
 
-    private let work = DispatchQueue(label: "se.sanctorum.reliquary.vault", qos: .userInitiated)
+    private let work = DispatchQueue(label: (Bundle.main.bundleIdentifier ?? "") + ".vault", qos: .userInitiated)
     private var picker: FolderPicker?
 
     static func register(with registrar: FlutterPluginRegistrar) {

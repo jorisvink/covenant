@@ -54,7 +54,7 @@ enum VaultError: Error, CustomStringConvertible {
 final class Vault {
     static let shared = Vault()
 
-    private static let tag = Data("se.sanctorum.reliquary.vault".utf8)
+    private static let tag = Data(((Bundle.main.bundleIdentifier ?? "") + ".vault").utf8)
     private static let algorithm = SecKeyAlgorithm.eciesEncryptionCofactorVariableIVX963SHA256AESGCM
     private static let vkLength = 32
 
