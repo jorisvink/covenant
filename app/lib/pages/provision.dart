@@ -21,13 +21,13 @@ enum Mode { cathedral, liturgy, tier6, gospel }
 enum _Step { cosk, register, approve, unlock }
 
 String _stepText(_Step step, {required bool here}) => switch (step) {
-  _Step.cosk => 'Create a key for the device',
+  _Step.cosk => 'Create a cathedral key for the device',
   _Step.register => 'Register it with Reliquary',
   _Step.approve => 'Add it to the flock',
   _Step.unlock =>
     here
-        ? 'Unlock your keys and hand it to Vigil'
-        : 'Unlock your keys and make the QR code',
+        ? 'Unlock your KEKs and hand it to Vigil'
+        : 'Unlock your KEKs and make the QR code',
 };
 
 final _name = RegExp(r'[A-Za-z0-9 ._-]');
@@ -327,7 +327,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
       if (_mode == Mode.cathedral &&
           int.parse(_peer.text.trim(), radix: 16) == _kek) {
         throw ApiError(
-          'This device got the same key number as the device you picked to '
+          'This device got the same KEK ID as the device you picked to '
           'connect to. Pick another one.',
         );
       }
@@ -375,7 +375,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
         ),
       ).ignore();
     } on CoreError catch (e) {
-      _fail(e.cancelled ? 'Your keys were not unlocked.' : e.message);
+      _fail(e.cancelled ? 'Your KEKs were not unlocked.' : e.message);
     } on ApiError catch (e) {
       _fail(e.message);
     }
@@ -465,7 +465,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
           (
             d.kekHex,
             _r.deviceName(widget.flock, d.id) ?? 'Device ${d.id}',
-            'Key number ${d.kekHex}',
+            'KEK ID ${d.kekHex}',
           ),
       ],
     );
@@ -705,8 +705,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
             maxLength: 4,
           ),
           const Text(
-            'Devices with the same group number can call each other. Leave '
-            'it empty to use the default group.',
+            'Devices with the same group number can communicate with each '
+            'other. Leave it empty to use the default group.',
             style: Styles.detail,
           ),
         ];
@@ -726,9 +726,9 @@ class _ProvisionPageState extends State<ProvisionPage> {
         ],
       ),
       const Text(
-        'Cathedrals are the Reliquary servers that help your devices find '
-        'each other, connect and get their keys. They cannot read '
-        'anything your devices send.',
+        'Cathedrals help your devices find each other, connect and receive '
+        'their encrypted secrets. They cannot read anything your devices '
+        'send.',
         style: Styles.detail,
       ),
       if (_mode == Mode.liturgy) ...[
@@ -788,7 +788,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
   /// The name of the device picked to connect to, if we know it.
   String? _peerName() {
     if (_peerNext) {
-      return 'The next device you add, it gets key number ${_peer.text}. '
+      return 'The next device you add, it gets KEK ID ${_peer.text}. '
           'Add it right after this one and pick this device to connect to.';
     }
 

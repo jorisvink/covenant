@@ -42,17 +42,10 @@ class AboutPage extends StatelessWidget {
           ),
         ),
         const Text(
-          'The keys protecting your devices in your flocks are made on this '
-          'phone and never leave it. The Reliquary servers only receive '
-          'encrypted secrets they cannot open, and each device gets its own '
-          'key from the QR code you scan.',
-          style: Styles.body,
-        ),
-        const Text(
-          'Your devices meet at cathedrals, the Reliquary servers that help '
-          'them find each other, connect and get their keys. Everything '
-          'between your devices is end-to-end encrypted, cathedrals cannot '
-          'read any of it.',
+          'The Key-Encryption-Keys (KEKs) used on your devices are made and '
+          'managed from this phone. The cathedrals only ever see encrypted '
+          'secrets they cannot decrypt. Devices you provision via Covenant '
+          'get the correct Key-Encryption-Key automatically.',
           style: Styles.body,
         ),
         const GroupLabel('The Community', index: 1),
@@ -66,7 +59,7 @@ class AboutPage extends StatelessWidget {
             LinkRow(
               'The Reliquary',
               () => open('https://reliquary.se'),
-              detail: 'The community network of cathedrals',
+              detail: 'A community-driven cathedral setup',
             ),
           ],
         ),

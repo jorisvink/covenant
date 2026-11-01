@@ -57,7 +57,7 @@ class _DevicePageState extends State<DevicePage> {
     final ok = await confirm(
       title: device.approved ? 'Remove $name' : 'Reject $name',
       text: renew
-          ? 'The device is removed from the flock and its key is replaced, '
+          ? 'The device is removed from the flock and its KEK is replaced, '
                 'so it can never connect again, even in the wrong hands.'
           : device.approved
           ? 'The device is removed from the flock. It can still connect '
@@ -92,13 +92,13 @@ class _DevicePageState extends State<DevicePage> {
 
       navigatorKey.currentState?.maybePop();
       notify(
-        renew ? '$name removed and its key replaced.' : '$name removed.',
+        renew ? '$name removed and its KEK replaced.' : '$name removed.',
         warn: false,
       );
     } on CoreError catch (e) {
       notify(
         e.cancelled
-            ? '$name was removed but its key was not replaced.'
+            ? '$name was removed but its KEK was not replaced.'
             : e.message,
       );
     } on ApiError catch (e) {
@@ -172,7 +172,7 @@ class _DevicePageState extends State<DevicePage> {
             KeyList(
               rows: [
                 ('Device ID', device.id),
-                ('Key number', device.approved ? device.kekHex : '-'),
+                ('KEK ID', device.approved ? device.kekHex : '-'),
                 ('Added', created == null ? '-' : dateTime(created)),
               ],
             ),
@@ -186,15 +186,15 @@ class _DevicePageState extends State<DevicePage> {
               const Notice(
                 text:
                     'Only approve devices you added yourself. A device that '
-                    'asked to join from a computer also needs its key file, '
+                    'asked to join from a computer also needs its KEK file, '
                     'which this app never hands out.',
               ),
             if (device.approved && keks)
               SwitchRow(
                 text:
-                    'Replace its key when removing it. Do this if the '
+                    'Replace its KEK when removing it. Do this if the '
                     'device was lost or stolen.',
-                label: 'Replace the key',
+                label: 'Replace the KEK',
                 on: _renew,
                 onChanged: (v) => setState(() => _renew = v),
               ),

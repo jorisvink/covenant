@@ -620,7 +620,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let flock = try flockArg(args["flock"])
                 let days = try daysArg(args["days"])
 
-                withKey(result, "Set up the keys of your flock", create: true) { vk in
+                withKey(result, "Set up the KEKs of your flock", create: true) { vk in
                     let sealed = try Core.generate(vk, flock: UInt64(flock, radix: 16)!)
                     let bundle = try Core.bundle(vk, sealed: sealed, days: days)
 
@@ -635,7 +635,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let kek = try kekArg(args["kek"])
                 let sealed = try Vault.shared.sealed(flock)
 
-                withKey(result, "Replace the key of a removed device", create: false) { vk in
+                withKey(result, "Replace the KEK of a removed device", create: false) { vk in
                     let renewed = try Core.renew(vk, sealed: sealed, kek: kek)
                     let bundle = try Core.bundle(vk, sealed: renewed, days: days)
 
@@ -665,7 +665,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                     return FlutterStandardTypedData(bytes: Data(root))
                 }
             case "backupAll":
-                withKey(result, "Back up the keys of your flocks", create: false) { vk in
+                withKey(result, "Back up the KEKs of your flocks", create: false) { vk in
                     try self.backupAll(vk)
                     return ""
                 }
@@ -690,7 +690,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
             case "backupRestore":
                 var root = try rootArg(call.arguments)
 
-                withKey(result, "Restore your keys", create: true) { vk in
+                withKey(result, "Restore your KEKs", create: true) { vk in
                     defer { Core.wipe(&root) }
                     return try self.restore(vk, root)
                 }
@@ -987,7 +987,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
 
     private func kekArg(_ value: Any?) throws -> UInt8 {
         guard let kek = value as? Int, (1...255).contains(kek) else {
-            throw VaultError.failed("Key numbers are 01 to ff.")
+            throw VaultError.failed("KEK IDs are 01 to ff.")
         }
 
         return UInt8(kek)

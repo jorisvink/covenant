@@ -83,7 +83,7 @@ class MainActivity : FlutterActivity() {
                     val flock = flock(call.argument<String>("flock"))
                     val days = days(call)
 
-                    withKey(result, "Set up the keys of your flock", create = true) { vk ->
+                    withKey(result, "Set up the KEKs of your flock", create = true) { vk ->
                         val sealed = Core.keksGenerate(vk, flockId(flock))
                         val bundle = bundle(vk, sealed, days)
 
@@ -99,9 +99,9 @@ class MainActivity : FlutterActivity() {
                     val days = days(call)
                     val sealed = vault.sealed(flock)
 
-                    require(kek in 1..255) { "Key numbers are 01 to ff." }
+                    require(kek in 1..255) { "KEK IDs are 01 to ff." }
 
-                    withKey(result, "Replace the key of a removed device", create = false) { vk ->
+                    withKey(result, "Replace the KEK of a removed device", create = false) { vk ->
                         val renewed = Core.keksRenew(vk, sealed, kek)
                         val bundle = bundle(vk, renewed, days)
 
@@ -137,7 +137,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "backupAll" -> {
-                    withKey(result, "Back up the keys of your flocks", create = false) { vk ->
+                    withKey(result, "Back up the KEKs of your flocks", create = false) { vk ->
                         backupAll(vk)
                         ""
                     }
@@ -166,7 +166,7 @@ class MainActivity : FlutterActivity() {
                 "backupRestore" -> {
                     val root = call.arguments as ByteArray
 
-                    withKey(result, "Restore your keys", create = true) { vk ->
+                    withKey(result, "Restore your KEKs", create = true) { vk ->
                         try {
                             restore(vk, root)
                         } finally {

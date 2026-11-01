@@ -36,13 +36,13 @@ enum VaultError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .cancelled:
-            return "Your keys were not unlocked."
+            return "Your KEKs were not unlocked."
         case .noPasscode:
-            return "Set a passcode first, it protects your keys."
+            return "Set a passcode first, it protects your KEKs."
         case .invalidated:
-            return "The passcode was removed, so the keys on this phone can no longer be opened."
+            return "The passcode was removed, so the KEKs on this phone can no longer be opened."
         case .missing:
-            return "The keys of this flock are not on this phone."
+            return "The KEKs of this flock are not on this phone."
         case .failed(let why):
             return why
         case .core(let code):

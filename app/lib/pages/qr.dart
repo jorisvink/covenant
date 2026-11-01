@@ -88,8 +88,8 @@ class _QrPageState extends State<QrPage> {
           const Notice(
             kind: NoticeKind.warn,
             text:
-                'This code holds the secret keys of the device. Only show '
-                'it to the device it is for.',
+                'This code holds the KEK and cathedral keys of the device. '
+                'Only show it to the device it is for.',
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,

@@ -62,12 +62,12 @@ class _FlockPageState extends State<FlockPage> {
     final had = _r.hasKeks(widget.id);
 
     final ok = await confirm(
-      title: had ? 'Reset all device keys' : 'Set up keys',
+      title: had ? 'Reset all KEKs' : 'Set up KEKs',
       text: had
-          ? 'This makes new keys for the whole flock. Every device stops '
+          ? 'This makes new KEKs for the whole flock. Every device stops '
                 'working until you add it again with a new QR code.'
-          : 'The keys that protect this flock are made on this phone and '
-                'locked in its vault. Reliquary never sees them.',
+          : 'The Key-Encryption-Keys (KEKs) of this flock are made on this '
+                'phone and locked in its vault. The cathedrals never see them.',
       action: had ? 'Reset' : 'Set up',
     );
 
@@ -80,9 +80,9 @@ class _FlockPageState extends State<FlockPage> {
       return;
     }
 
-    await _run('Making the keys', () async {
+    await _run('Making the KEKs', () async {
       await _r.generate(widget.id, days);
-      return 'The keys are set up, you can add devices now.';
+      return 'The KEKs are set up, you can add devices now.';
     }, after: _allowReminders);
   }
 
@@ -121,7 +121,7 @@ class _FlockPageState extends State<FlockPage> {
 
   Future<void> _forget() async {
     final ok = await confirm(
-      title: 'Remove the keys',
+      title: 'Remove the KEKs',
       text:
           'Your devices keep working until the current encrypted secrets '
           'expire. After that nobody can send them new ones and the flock '
@@ -130,9 +130,9 @@ class _FlockPageState extends State<FlockPage> {
     );
 
     if (ok) {
-      await _run('Removing the keys', () async {
+      await _run('Removing the KEKs', () async {
         await _r.forget(widget.id);
-        return 'The keys are removed from this phone.';
+        return 'The KEKs are removed from this phone.';
       });
     }
   }
@@ -141,7 +141,7 @@ class _FlockPageState extends State<FlockPage> {
     final ok = await confirm(
       title: 'Delete this flock',
       text:
-          'The flock and all of its devices are deleted, and its keys are '
+          'The flock and all of its devices are deleted, and its KEKs are '
           'removed from this phone. This cannot be undone.',
       action: 'Delete',
     );
@@ -223,7 +223,7 @@ class _FlockPageState extends State<FlockPage> {
               const Notice(
                 kind: NoticeKind.warn,
                 text:
-                    'The keys on this phone cannot be opened anymore because '
+                    'The KEKs on this phone cannot be opened anymore because '
                     'the screen lock was changed or removed. See the Keys '
                     'tab.',
               ),
@@ -231,9 +231,9 @@ class _FlockPageState extends State<FlockPage> {
               const Notice(
                 kind: NoticeKind.warn,
                 text:
-                    'The encrypted secrets have not reached Reliquary yet, '
-                    'your devices cannot connect until they do. Send them '
-                    'again below.',
+                    'The encrypted secrets have not reached the cathedrals '
+                    'yet, your devices cannot connect until they do. Send '
+                    'them again below.',
               ),
             if (state == FlockState.expired && work == null)
               const Notice(
@@ -274,7 +274,7 @@ class _FlockPageState extends State<FlockPage> {
             else if (approved.isEmpty)
               Notice(
                 text: keks == null
-                    ? 'No devices yet. Set up the keys first, then add your '
+                    ? 'No devices yet. Set up the KEKs first, then add your '
                           'devices.'
                     : 'No devices yet. Tap Add a device and scan the QR code '
                           'with the Vigil app on the device.',
@@ -282,7 +282,7 @@ class _FlockPageState extends State<FlockPage> {
             else
               for (final d in approved)
                 _DeviceCard(flock: widget.id, device: d),
-            GroupLabel('Keys', index: ++index),
+            GroupLabel('Key-Encryption-Keys (KEKs)', index: ++index),
             KeyList(
               rows: [
                 (
@@ -297,8 +297,8 @@ class _FlockPageState extends State<FlockPage> {
             ),
             if (keks != null) ...[
               const Text(
-                'Your devices get their keys from encrypted secrets on '
-                'Reliquary that only they can open. These expire, so send new '
+                'Your devices get their keys from encrypted secrets via '
+                'cathedrals that only they can open. These expire, so send new '
                 'ones before they do.',
                 style: Styles.detail,
               ),
@@ -320,13 +320,13 @@ class _FlockPageState extends State<FlockPage> {
                   children: [
                     if (keks != null) ...[
                       _DangerRow(
-                        label: 'Reset all device keys',
+                        label: 'Reset all KEKs',
                         detail: 'Every device must be added again',
                         onTap: _generate,
                       ),
                       const Line(),
                       _DangerRow(
-                        label: 'Remove the keys from this phone',
+                        label: 'Remove the KEKs from this phone',
                         detail: 'You can no longer send encrypted secrets',
                         onTap: _forget,
                       ),
@@ -409,9 +409,9 @@ class _Hero extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   state == FlockState.noKeks
-                      ? 'Set up the keys of this flock to add devices.'
+                      ? 'Set up the KEKs of this flock to add devices.'
                       : state == FlockState.external
-                      ? '${devicesText(flock.approved)} · their keys are '
+                      ? '${devicesText(flock.approved)} · their KEKs are '
                             'kept somewhere else'
                       : flock.pending > 0
                       ? '${devicesText(flock.approved)} · '
@@ -423,7 +423,7 @@ class _Hero extends StatelessWidget {
                   const SizedBox(height: 20),
                   state == FlockState.noKeks
                       ? Btn(
-                          label: 'Set up keys',
+                          label: 'Set up KEKs',
                           glyph: GlyphKind.keys,
                           expand: true,
                           onTap: onTap,

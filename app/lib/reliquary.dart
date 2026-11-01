@@ -337,7 +337,7 @@ class Reliquary extends ChangeNotifier {
 
   /// New KEKs for the flock, bundled and uploaded right away.
   Future<AmbryNote> generate(String flock, int days) =>
-      _work(flock, 'Making the keys', () async {
+      _work(flock, 'Making the KEKs', () async {
         final bundle = await core.generate(flock, days);
         await reloadVault();
         return bundle;
@@ -350,7 +350,7 @@ class Reliquary extends ChangeNotifier {
   );
 
   Future<AmbryNote> renew(String flock, int kek, int days) =>
-      _work(flock, 'Replacing the device key', () async {
+      _work(flock, 'Replacing the KEK of the device', () async {
         final bundle = await core.renew(flock, kek, days);
         await reloadVault();
         return bundle;
@@ -457,7 +457,7 @@ class Reliquary extends ChangeNotifier {
 
     await _note(flock, note);
 
-    const step = 'Sending the encrypted secrets to Reliquary';
+    const step = 'Sending the encrypted secrets to the cathedrals';
     _working(Work(flock, step, 0));
 
     await api.ambryUpload(

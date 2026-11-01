@@ -38,12 +38,12 @@ import javax.crypto.spec.GCMParameterSpec
  * each flock, "pending" until it is written to the backup folder.
  */
 class Vault(context: Context) {
-    class Cancelled : Exception("Your keys were not unlocked.")
+    class Cancelled : Exception("Your KEKs were not unlocked.")
     class Invalidated : Exception(
-        "The screen lock was changed, so the keys on this phone can no longer be opened."
+        "The screen lock was changed, so the KEKs on this phone can no longer be opened."
     )
-    class NoLock : Exception("Set up a screen lock (PIN, pattern or password) first, it protects your keys.")
-    class Missing(flock: String) : Exception("The keys of this flock are not on this phone.")
+    class NoLock : Exception("Set up a screen lock (PIN, pattern or password) first, it protects your KEKs.")
+    class Missing(flock: String) : Exception("The KEKs of this flock are not on this phone.")
 
     private val dir = File(context.noBackupFilesDir, "vault").apply { mkdirs() }
     private val keyFile = File(dir, "vault.key")
@@ -191,7 +191,7 @@ class Vault(context: Context) {
         }
 
         val prompt = BiometricPrompt.Builder(activity)
-            .setTitle(if (creating) "Create your key vault" else "Unlock your keys")
+            .setTitle(if (creating) "Create your key vault" else "Unlock your KEKs")
             .setSubtitle(reason)
             .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
             .setConfirmationRequired(false)

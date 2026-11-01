@@ -111,9 +111,8 @@ class _AccountPageState extends State<AccountPage> {
     final ok = await confirm(
       title: 'Log out',
       text:
-          'You are about to logout, your account key is not stored in the app. '
-          'Your encrypted keys remain on this phone, locked. Log in again with '
-          'your account key to continue managing your flocks.',
+          'This app does not keep your account key, you need it to log in '
+          'again. The KEKs of your flocks stay on this phone.',
       action: 'Log out',
     );
 
@@ -166,7 +165,7 @@ class _AccountPageState extends State<AccountPage> {
       const Text(
         'Reliquary connects your devices to each other privately, wherever '
         'they are. Everything is encrypted end to end with keys that never '
-        'leave your devices, Reliquary cannot read any of it.',
+        'leave your devices, the cathedrals cannot read any of it.',
         style: Styles.body,
       ),
       Choice<_Way>(
@@ -234,8 +233,8 @@ class _AccountPageState extends State<AccountPage> {
         const Notice(
           kind: NoticeKind.warn,
           text:
-              'Your account has expired. Your devices cannot get new keys '
-              'and you cannot manage your flocks until you extend it.',
+              'Your account has expired. You cannot send new encrypted '
+              'secrets or manage your flocks until you extend it.',
         )
       else if (soon)
         const Notice(

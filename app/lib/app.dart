@@ -165,8 +165,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       return;
     }
 
-    if (flock != null && mounted) {
-      goTab(NavTab.flocks);
+    if (flock == null || !mounted) {
+      return;
+    }
+
+    goTab(NavTab.flocks);
+
+    if (Reliquary.instance.session != null) {
       push(FlockPage(id: flock)).ignore();
     }
   }

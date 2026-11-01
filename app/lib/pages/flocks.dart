@@ -30,7 +30,7 @@ class _FlocksPageState extends State<FlocksPage> {
       title: 'Create a flock',
       text:
           'A flock is a private group of up to 255 of your devices that can '
-          'reach each other. Next you set up its keys on this phone and add '
+          'reach each other. Next you set up its KEKs on this phone and add '
           'your devices.',
       action: 'Create',
     );

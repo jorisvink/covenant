@@ -35,8 +35,8 @@ List<Widget> backupSection(Vault vault) {
         const Notice(
           kind: NoticeKind.warn,
           text:
-              'Your keys are not backed up. If this phone breaks, every '
-              'flock needs new keys and every device has to be set up again.',
+              'Your KEKs are not backed up. If this phone breaks, every '
+              'flock needs new KEKs and every device has to be set up again.',
         ),
       Btn(
         label: 'Make a recovery key',
@@ -126,10 +126,10 @@ Future<void> _makeKey({required bool replace}) async {
               'for it, replacing the backups in the folder. The old recovery '
               'key still opens any old backup you copied elsewhere, destroy '
               'those and the old paper.'
-        : 'You get a recovery key to write down. Your keys are backed up '
+        : 'You get a recovery key to write down. Your KEKs are backed up '
               'encrypted to it, this phone can make backups but never read '
               'them. With the recovery key and the backups you can bring '
-              'your keys back on another phone.',
+              'your KEKs back on another phone.',
     action: replace ? 'Make new key' : 'Make key',
   );
 
@@ -254,7 +254,7 @@ class _RecoveryKeyPageState extends State<RecoveryKeyPage> {
         children: [
           const Text(
             'Write this down on paper and keep it somewhere safe, away from '
-            'the backup folder. Anyone with both can read your keys.',
+            'the backup folder. Anyone with both can read your KEKs.',
             style: Styles.body,
           ),
           Pre(
@@ -385,7 +385,7 @@ class _RestorePageState extends State<RestorePage> {
     }
 
     try {
-      final r = await wait('Restoring your keys', () => _r.restore(root));
+      final r = await wait('Restoring your KEKs', () => _r.restore(root));
       _key.clear();
 
       final parts = [
@@ -416,7 +416,7 @@ class _RestorePageState extends State<RestorePage> {
 
     return PushedPage(
       rubric: 'Backup',
-      title: 'Restore keys',
+      title: 'Restore KEKs',
       bottom: found == null
           ? Btn(label: 'Choose folder', expand: true, onTap: _pick)
           : Btn(
@@ -426,7 +426,7 @@ class _RestorePageState extends State<RestorePage> {
             ),
       children: [
         const Text(
-          'Bring back the keys of your flocks from their backups, with the '
+          'Bring back the KEKs of your flocks from their backups, with the '
           'recovery key you wrote down. Your devices keep working as they '
           'are, nothing needs to be set up again.',
           style: Styles.body,

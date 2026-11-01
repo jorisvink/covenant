@@ -528,7 +528,7 @@ class LinkRow {
 
   final String label;
   final String? detail;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 }
 
 class LinkList extends StatelessWidget {
@@ -549,7 +549,12 @@ class LinkList extends StatelessWidget {
               label: rows[i].label,
               builder: (context, pressed) => Container(
                 color: pressed ? Palette.bg3 : null,
-                padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  14,
+                  rows[i].onTap == null ? 16 : 10,
+                  14,
+                ),
                 child: Row(
                   children: [
                     Expanded(
@@ -567,11 +572,12 @@ class LinkList extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Glyph(
-                      GlyphKind.chevron,
-                      size: 18,
-                      color: pressed ? Palette.amber : Palette.dim,
-                    ),
+                    if (rows[i].onTap != null)
+                      Glyph(
+                        GlyphKind.chevron,
+                        size: 18,
+                        color: pressed ? Palette.amber : Palette.dim,
+                      ),
                   ],
                 ),
               ),
