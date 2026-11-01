@@ -148,19 +148,19 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
       for (final r in _entries(_routes)) {
         if (!_isNet(r)) {
-          return '$r is not a network, like 10.0.0.0/8.';
+          return '$r is not a network, write it like 10.0.0.0/8.';
         }
       }
     }
 
     if (_mode == Mode.liturgy && !_isIp(_prefix.text.trim())) {
-      return 'The network prefix looks like 172.31.0.0.';
+      return 'Write the network prefix like 172.31.0.0.';
     }
 
     if (_mode == Mode.tier6 &&
         _tunnel.text.trim().isNotEmpty &&
         !_isNet(_tunnel.text.trim(), min: 8)) {
-      return 'The address looks like 10.88.0.2/24, or leave it empty.';
+      return 'Write the address like 10.88.0.2/24, or leave it empty.';
     }
 
     if ((_mode == Mode.liturgy || _mode == Mode.gospel) &&
@@ -186,7 +186,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
     if (mtu.isNotEmpty && mtu != 'auto') {
       final v = int.tryParse(mtu);
       if (v == null || v < 576 || v > 1500) {
-        return 'The packet size is auto or between 576 and 1500.';
+        return 'The packet size must be auto or between 576 and 1500.';
       }
     }
 
@@ -316,7 +316,9 @@ class _ProvisionPageState extends State<ProvisionPage> {
       if (_mode == Mode.cathedral && _peerNext) {
         final next = _nextKek(_kek!);
         if (next == null) {
-          throw ApiError('This flock is full, there is no room for a peer.');
+          throw ApiError(
+            'This flock is full, there is no room for the other device.',
+          );
         }
 
         _peer.text = hex(next, prefix: false);
@@ -724,8 +726,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
         ],
       ),
       const Text(
-        'Cathedrals are the Reliquary servers that help your devices with '
-        'discovery, connectability and key distribution. They cannot read '
+        'Cathedrals are the Reliquary servers that help your devices find '
+        'each other, connect and get their keys. They cannot read '
         'anything your devices send.',
         style: Styles.detail,
       ),

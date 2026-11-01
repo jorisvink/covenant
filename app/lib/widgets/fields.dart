@@ -21,7 +21,9 @@ class Field extends StatelessWidget {
     this.maxLength,
     this.lines = 1,
     this.keyboard,
+    this.autofocus = false,
     this.onChanged,
+    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -30,13 +32,17 @@ class Field extends StatelessWidget {
   final int? maxLength;
   final int lines;
   final TextInputType? keyboard;
+  final bool autofocus;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
     return Pre(
       child: TextField(
         controller: controller,
+        autofocus: autofocus,
+        onSubmitted: onSubmitted,
         maxLength: maxLength,
         minLines: lines,
         maxLines: lines == 1 ? 1 : lines + 6,

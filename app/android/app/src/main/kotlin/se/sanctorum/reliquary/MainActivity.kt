@@ -99,7 +99,7 @@ class MainActivity : FlutterActivity() {
                     val days = days(call)
                     val sealed = vault.sealed(flock)
 
-                    require(kek in 1..255) { "KEK ids are 01 to ff." }
+                    require(kek in 1..255) { "Key numbers are 01 to ff." }
 
                     withKey(result, "Replace the key of a removed device", create = false) { vk ->
                         val renewed = Core.keksRenew(vk, sealed, kek)
@@ -115,7 +115,7 @@ class MainActivity : FlutterActivity() {
                     val days = days(call)
                     val sealed = vault.sealed(flock)
 
-                    withKey(result, "Make a new encrypted key update", create = false) { vk ->
+                    withKey(result, "Make new encrypted secrets", create = false) { vk ->
                         bundle(vk, sealed, days)
                     }
                 }
@@ -431,7 +431,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun flock(flock: String?): String {
-        require(flock != null && flock.matches(Regex("[0-9a-f]{16}"))) { "That is not a flock id." }
+        require(flock != null && flock.matches(Regex("[0-9a-f]{16}"))) { "That is not a flock ID." }
         return flock
     }
 
@@ -439,7 +439,7 @@ class MainActivity : FlutterActivity() {
 
     private fun days(call: MethodCall): Int {
         val days = call.argument<Int>("days") ?: 0
-        require(days in 1..3650) { "A key update lasts 1 to 3650 days." }
+        require(days in 1..3650) { "Encrypted secrets last 1 to 3650 days." }
         return days
     }
 

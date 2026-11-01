@@ -500,10 +500,11 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
                 let date = Date(timeIntervalSince1970: TimeInterval(at) / 1000)
                 let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
                 let left = days == 1 ? "1 day" : "\(days) days"
+                let name = reminder["name"] as? String ?? flock
 
                 let content = UNMutableNotificationContent()
-                content.title = "Encrypted key update expires soon"
-                content.body = "Flock \(flock) expires in \(left), send a new one to keep its devices connected."
+                content.title = "Encrypted secrets expire soon"
+                content.body = "The encrypted secrets of \(name) expire in \(left). Send new ones to keep its devices connected."
                 content.sound = .default
                 content.userInfo = ["flock": flock]
 
@@ -647,7 +648,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let days = try daysArg(args["days"])
                 let sealed = try Vault.shared.sealed(flock)
 
-                withKey(result, "Make a new encrypted key update", create: false) { vk in
+                withKey(result, "Make new encrypted secrets", create: false) { vk in
                     try Core.bundle(vk, sealed: sealed, days: days)
                 }
             case "keksDelete":
@@ -962,7 +963,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
     private func flockArg(_ value: Any?) throws -> String {
         guard let flock = value as? String,
               flock.range(of: "^[0-9a-f]{16}$", options: .regularExpression) != nil else {
-            throw VaultError.failed("That is not a flock id.")
+            throw VaultError.failed("That is not a flock ID.")
         }
 
         return flock
@@ -970,7 +971,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
 
     private func daysArg(_ value: Any?) throws -> UInt16 {
         guard let days = value as? Int, (1...3650).contains(days) else {
-            throw VaultError.failed("A key update lasts 1 to 3650 days.")
+            throw VaultError.failed("Encrypted secrets last 1 to 3650 days.")
         }
 
         return UInt16(days)
@@ -986,7 +987,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
 
     private func kekArg(_ value: Any?) throws -> UInt8 {
         guard let kek = value as? Int, (1...255).contains(kek) else {
-            throw VaultError.failed("KEK ids are 01 to ff.")
+            throw VaultError.failed("Key numbers are 01 to ff.")
         }
 
         return UInt8(kek)

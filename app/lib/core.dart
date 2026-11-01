@@ -175,13 +175,13 @@ class QrCode {
   void wipe() => modules.fillRange(0, modules.length, 0);
 }
 
-/// The RLQ_ERROR_* codes from include/reliquary.h.
+/// The COVENANT_ERROR_* codes from include/covenant.h.
 String _coreError(int code) => switch (code) {
   1 => 'The phone ran out of memory, try again.',
   2 => 'Something was not filled in correctly.',
   4 => 'Something went wrong, try again.',
-  5 => 'The device keys on this phone are damaged and cannot be opened.',
-  6 => 'The device keys were saved by a newer version of this app.',
+  5 => 'The keys on this phone are damaged and cannot be opened.',
+  6 => 'The keys on this phone were saved by a newer version of this app.',
   7 => 'The device settings are not valid.',
   8 => 'The device settings are not valid.',
   9 => 'The device settings are for another flock.',

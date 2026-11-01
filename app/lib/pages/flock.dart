@@ -95,8 +95,8 @@ class _FlockPageState extends State<FlockPage> {
     final ok = await confirm(
       title: 'Expiry reminders',
       text:
-          'Covenant can remind you a few days before the encrypted key '
-          'update of a flock expires, so its devices keep connecting. Allow '
+          'Covenant can remind you a few days before the encrypted secrets '
+          'of a flock expire, so you can send new ones in time. Allow '
           'notifications to get these reminders.',
       action: 'Allow',
     );
@@ -112,9 +112,9 @@ class _FlockPageState extends State<FlockPage> {
       return;
     }
 
-    await _run('Making a new key update', () async {
+    await _run('Making new encrypted secrets', () async {
       final note = await _r.rebundle(widget.id, days);
-      return 'Encrypted key update sent, valid until '
+      return 'Encrypted secrets sent, valid until '
           '${date(note.expiry)}.';
     }, after: _allowReminders);
   }
@@ -123,9 +123,9 @@ class _FlockPageState extends State<FlockPage> {
     final ok = await confirm(
       title: 'Remove the keys',
       text:
-          'Your devices keep working until the current key update expires. '
-          'After that nobody can send them a new one and the flock has to '
-          'be set up again. This cannot be undone.',
+          'Your devices keep working until the current encrypted secrets '
+          'expire. After that nobody can send them new ones and the flock '
+          'has to be set up again. This cannot be undone.',
       action: 'Remove',
     );
 
@@ -154,6 +154,23 @@ class _FlockPageState extends State<FlockPage> {
     }
   }
 
+  Future<void> _rename() async {
+    final name = await ask(
+      title: 'Name this flock',
+      text:
+          'The name is only kept on this phone, Reliquary and your other '
+          'devices never see it. Leave it empty to show the flock ID.',
+      action: 'Save',
+      initial: _r.flockName(widget.id) ?? '',
+      hint: widget.id,
+      maxLength: 64,
+    );
+
+    if (name != null) {
+      await _r.nameFlock(widget.id, name);
+    }
+  }
+
   Future<void> _approve(Device d) async {
     await _run('Approving the device', () async {
       await _r.approve(widget.id, d.id);
@@ -179,8 +196,9 @@ class _FlockPageState extends State<FlockPage> {
 
         return PushedPage(
           rubric: 'Flock',
-          title: widget.id,
+          title: _r.flockLabel(widget.id),
           actions: [
+            GlyphBtn(GlyphKind.edit, label: 'Rename', onTap: _rename),
             GlyphBtn(
               GlyphKind.refresh,
               label: 'Refresh',
@@ -213,16 +231,16 @@ class _FlockPageState extends State<FlockPage> {
               const Notice(
                 kind: NoticeKind.warn,
                 text:
-                    'The encrypted key update was not sent to Reliquary yet, '
-                    'your devices cannot connect until it is. Send a new one '
-                    'below.',
+                    'The encrypted secrets have not reached Reliquary yet, '
+                    'your devices cannot connect until they do. Send them '
+                    'again below.',
               ),
             if (state == FlockState.expired && work == null)
               const Notice(
                 kind: NoticeKind.warn,
                 text:
-                    'The key update has expired, your devices cannot reach '
-                    'each other. Send a new one below.',
+                    'The encrypted secrets have expired, your devices cannot '
+                    'reach each other. Send new ones below.',
               ),
             if (flock.problem != null)
               Notice(kind: NoticeKind.warn, text: flock.problem!),
@@ -269,7 +287,7 @@ class _FlockPageState extends State<FlockPage> {
               rows: [
                 (
                   'Stored',
-                  keks == null ? 'Not on this phone' : 'On this device',
+                  keks == null ? 'Not on this phone' : 'On this phone',
                 ),
                 if (ambry != null) ...[
                   ('Valid until', '${date(ambry.expiry)}\n${_left(ambry)}'),
@@ -279,13 +297,13 @@ class _FlockPageState extends State<FlockPage> {
             ),
             if (keks != null) ...[
               const Text(
-                'Your devices fetch an encrypted key update from Reliquary '
-                'to connect to each other, only they can open it. Those '
-                'keys expire, so send an encrypted key update occasionally.',
+                'Your devices get their keys from encrypted secrets on '
+                'Reliquary that only they can open. These expire, so send new '
+                'ones before they do.',
                 style: Styles.detail,
               ),
               Btn(
-                label: 'Send encrypted key update',
+                label: 'Send encrypted secrets',
                 glyph: GlyphKind.refresh,
                 kind: state == FlockState.ready
                     ? BtnKind.secondary
@@ -309,7 +327,7 @@ class _FlockPageState extends State<FlockPage> {
                       const Line(),
                       _DangerRow(
                         label: 'Remove the keys from this phone',
-                        detail: 'You can no longer send key updates',
+                        detail: 'You can no longer send encrypted secrets',
                         onTap: _forget,
                       ),
                       const Line(),
@@ -373,7 +391,11 @@ class _Hero extends StatelessWidget {
                   children: [
                     StateDot(live),
                     const SizedBox(width: 10),
-                    const Rubric(text: 'Flock'),
+                    Rubric(
+                      text: Reliquary.instance.flockName(flock.id) == null
+                          ? 'Flock'
+                          : 'Flock ${flock.id}',
+                    ),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -381,8 +403,8 @@ class _Hero extends StatelessWidget {
                   FlockState.ready => 'Ready',
                   FlockState.noKeks => 'Set up needed',
                   FlockState.external => 'Managed externally',
-                  FlockState.noAmbry => 'Not sent yet',
-                  FlockState.expired => 'Keys expired',
+                  FlockState.noAmbry => 'Secrets not sent',
+                  FlockState.expired => 'Secrets expired',
                 }, style: Styles.state),
                 const SizedBox(height: 6),
                 Text(

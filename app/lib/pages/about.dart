@@ -44,13 +44,13 @@ class AboutPage extends StatelessWidget {
         const Text(
           'The keys protecting your devices in your flocks are made on this '
           'phone and never leave it. The Reliquary servers only receive '
-          'encrypted key updates it cannot open, and each device gets its own '
+          'encrypted secrets they cannot open, and each device gets its own '
           'key from the QR code you scan.',
           style: Styles.body,
         ),
         const Text(
           'Your devices meet at cathedrals, the Reliquary servers that help '
-          'with discovery, connectability and key distribution. Everything '
+          'them find each other, connect and get their keys. Everything '
           'between your devices is end-to-end encrypted, cathedrals cannot '
           'read any of it.',
           style: Styles.body,

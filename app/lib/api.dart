@@ -418,7 +418,7 @@ class Api {
     final secret = json['cathedral_secret'] as String? ?? '';
 
     if (!isDevice(id) || !RegExp(r'^[0-9a-f]{64}$').hasMatch(secret)) {
-      throw ApiError('Reliquary sent back an odd device, try again.');
+      throw ApiError('Reliquary sent back an invalid device, try again.');
     }
 
     return Registration(id, secret, json['flock'] as String? ?? flock);
@@ -457,7 +457,7 @@ class Api {
       text = await _post('ambry/$flock', bundle, progress);
     } on ApiError catch (e) {
       if (e.status == 403 && bundle.length != 3756730) {
-        throw ApiError('Reliquary refused this encrypted key update.');
+        throw ApiError('Reliquary refused these encrypted secrets.');
       }
       rethrow;
     }

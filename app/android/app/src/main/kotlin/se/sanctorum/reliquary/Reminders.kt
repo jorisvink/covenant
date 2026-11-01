@@ -32,12 +32,19 @@ object Reminders {
             val flock = reminder["flock"] as? String ?: continue
             val days = (reminder["days"] as? Number)?.toInt() ?: continue
             val at = (reminder["at"] as? Number)?.toLong() ?: continue
+            val name = reminder["name"] as? String ?: flock
 
             if (at <= now) continue
 
             val request = OneTimeWorkRequest.Builder(Reminder::class.java)
                 .setInitialDelay(at - now, TimeUnit.MILLISECONDS)
-                .setInputData(Data.Builder().putString("flock", flock).putInt("days", days).build())
+                .setInputData(
+                    Data.Builder()
+                        .putString("flock", flock)
+                        .putString("name", name)
+                        .putInt("days", days)
+                        .build()
+                )
                 .addTag(TAG)
                 .build()
 
@@ -45,14 +52,14 @@ object Reminders {
         }
     }
 
-    fun show(context: Context, flock: String, days: Int) {
+    fun show(context: Context, flock: String, name: String, days: Int) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return
         }
 
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Key update reminders", NotificationManager.IMPORTANCE_DEFAULT)
+            NotificationChannel(CHANNEL, "Expiry reminders", NotificationManager.IMPORTANCE_DEFAULT)
         )
 
         val open = Intent(context, MainActivity::class.java)
@@ -66,11 +73,11 @@ object Reminders {
         val left = if (days == 1) "1 day" else "$days days"
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle("Encrypted key update expires soon")
-            .setContentText("Flock $flock expires in $left, send a new one to keep its devices connected.")
+            .setContentTitle("Encrypted secrets expire soon")
+            .setContentText("The encrypted secrets of $name expire in $left. Send new ones to keep its devices connected.")
             .setStyle(
                 Notification.BigTextStyle()
-                    .bigText("Flock $flock expires in $left, send a new one to keep its devices connected.")
+                    .bigText("The encrypted secrets of $name expire in $left. Send new ones to keep its devices connected.")
             )
             .setContentIntent(tap)
             .setAutoCancel(true)
@@ -83,7 +90,8 @@ object Reminders {
 class Reminder(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
         val flock = inputData.getString("flock") ?: return Result.success()
-        Reminders.show(applicationContext, flock, inputData.getInt("days", 0))
+        val name = inputData.getString("name") ?: flock
+        Reminders.show(applicationContext, flock, name, inputData.getInt("days", 0))
         return Result.success()
     }
 }

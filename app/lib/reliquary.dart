@@ -123,6 +123,25 @@ class Reliquary extends ChangeNotifier {
   Future<void> nameDevice(String flock, String device, String name) =>
       _names((names) => names['$flock/$device'] = name);
 
+  String? flockName(String flock) {
+    final names = _prefs['names'] as Map<String, dynamic>? ?? const {};
+    return names[flock] as String?;
+  }
+
+  String flockLabel(String flock) => flockName(flock) ?? flock;
+
+  Future<void> nameFlock(String flock, String name) async {
+    await _names((names) {
+      if (name.isEmpty) {
+        names.remove(flock);
+      } else {
+        names[flock] = name;
+      }
+    });
+
+    await _remind();
+  }
+
   Future<void> start() async {
     try {
       final saved = await core.session();
@@ -296,7 +315,9 @@ class Reliquary extends ChangeNotifier {
     ];
 
     await _note(id, null);
-    await _names((names) => names.removeWhere((k, _) => k.startsWith(id)));
+    await _names(
+      (names) => names.removeWhere((k, _) => k == id || k.startsWith('$id/')),
+    );
     await _cache();
   }
 
@@ -322,8 +343,11 @@ class Reliquary extends ChangeNotifier {
         return bundle;
       });
 
-  Future<AmbryNote> rebundle(String flock, int days) =>
-      _work(flock, 'Making a new key update', () => core.bundle(flock, days));
+  Future<AmbryNote> rebundle(String flock, int days) => _work(
+    flock,
+    'Making new encrypted secrets',
+    () => core.bundle(flock, days),
+  );
 
   Future<AmbryNote> renew(String flock, int kek, int days) =>
       _work(flock, 'Replacing the device key', () async {
@@ -433,7 +457,7 @@ class Reliquary extends ChangeNotifier {
 
     await _note(flock, note);
 
-    const step = 'Sending the encrypted key update to Reliquary';
+    const step = 'Sending the encrypted secrets to Reliquary';
     _working(Work(flock, step, 0));
 
     await api.ambryUpload(
@@ -521,6 +545,7 @@ class Reliquary extends ChangeNotifier {
         if (at.isAfter(now)) {
           reminders.add({
             'flock': flock,
+            'name': flockLabel(flock),
             'days': days,
             'at': at.millisecondsSinceEpoch,
           });

@@ -20,8 +20,8 @@ class KeysPage extends StatelessWidget {
       title: 'Wipe all keys',
       text:
           'Every key on this phone is destroyed. Your devices keep working '
-          'until their key update expires, after that each flock has to be '
-          'set up again. This cannot be undone.',
+          'until their encrypted secrets expire, after that each flock has '
+          'to be set up again. This cannot be undone.',
       action: 'Wipe',
     );
 
@@ -117,7 +117,7 @@ class KeysPage extends StatelessWidget {
                 rows: [
                   for (final f in flocks)
                     LinkRow(
-                      f.flock,
+                      r.flockLabel(f.flock),
                       () => push(FlockPage(id: f.flock)),
                       detail: vault?.backup?.key == true
                           ? 'Since ${date(f.created)} · ${_backup(f)}'

@@ -12,6 +12,7 @@ import 'pages/keys.dart';
 import 'reliquary.dart';
 import 'theme.dart';
 import 'widgets/buttons.dart';
+import 'widgets/fields.dart';
 import 'widgets/marks.dart';
 import 'widgets/ui.dart';
 
@@ -545,6 +546,91 @@ Future<bool> confirm({
   return result ?? false;
 }
 
+Future<String?> ask({
+  required String title,
+  required String text,
+  required String action,
+  String initial = '',
+  String? hint,
+  int? maxLength,
+}) async {
+  final context = navigatorKey.currentContext;
+  if (context == null) {
+    return null;
+  }
+
+  FocusManager.instance.primaryFocus?.unfocus();
+
+  final controller = TextEditingController(text: initial);
+
+  final result = await showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: const Color(0x00000000),
+    barrierColor: const Color(0xcc0b0c0e),
+    elevation: 0,
+    isScrollControlled: true,
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: CustomPaint(
+        painter: const CutPainter(fill: Palette.bg2, stroke: Palette.line2),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            Metrics.edge,
+            14,
+            Metrics.edge,
+            MediaQuery.paddingOf(context).bottom + 18,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(width: 32, height: 3, color: Palette.amber),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const RubricCross(fill: Palette.bg2),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(title, style: Styles.cardTitle)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(text, style: Styles.body),
+              const SizedBox(height: 16),
+              Field(
+                controller: controller,
+                hint: hint,
+                maxLength: maxLength,
+                autofocus: true,
+                onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+              ),
+              const SizedBox(height: 24),
+              BtnPair(
+                first: Btn(
+                  label: 'Cancel',
+                  kind: BtnKind.secondary,
+                  expand: true,
+                  onTap: () => Navigator.of(context).pop(),
+                ),
+                second: Btn(
+                  label: action,
+                  expand: true,
+                  onTap: () =>
+                      Navigator.of(context).pop(controller.text.trim()),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  controller.dispose();
+  return result;
+}
+
 /// Let the user pick one of a few options in a sheet.
 Future<T?> choose<T>({
   required String title,
@@ -612,14 +698,13 @@ Future<T?> choose<T>({
   );
 }
 
-/// How long an ambry bundle should be valid for.
 Future<int?> chooseDays() => choose<int>(
-  title: 'How long should it last?',
+  title: 'How long should the encrypted secrets stay valid?',
   options: const [
-    (7, '7 days', 'Safest, renew it every week'),
-    (30, '30 days', 'Recommended'),
+    (7, '7 days', null),
+    (30, '30 days', null),
     (90, '90 days', null),
-    (365, '1 year', 'Only if you cannot renew it in time'),
+    (365, '1 year', null),
   ],
 );
 

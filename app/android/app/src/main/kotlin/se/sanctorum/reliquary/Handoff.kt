@@ -33,7 +33,7 @@ object Handoff {
         }
 
         val launch = activity.packageManager.getLaunchIntentForPackage(PACKAGE)
-        checkNotNull(launch) { "Vigil took the device but cannot be opened, open it yourself." }
+        checkNotNull(launch) { "Vigil accept the configuration but could not be opened, open Vigil yourself." }
         activity.startActivity(launch)
     }
 }

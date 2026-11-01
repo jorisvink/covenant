@@ -61,8 +61,8 @@ class _AccountPageState extends State<AccountPage> {
     final ok = await confirm(
       title: 'Create an account',
       text:
-          'A new account lasts 24 hours, you can extend it from the '
-          'Account tab at any time.\n\n'
+          'A new account lasts 24 hours, you can extend it here at any '
+          'time.\n\n'
           'You get an account key, a long code that is the only way to log '
           'back in. Write it down, it cannot be recovered.\n\n'
           'Reliquary may not be used for anything illegal, you alone are '

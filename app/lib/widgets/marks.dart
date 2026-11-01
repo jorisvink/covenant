@@ -247,6 +247,7 @@ enum GlyphKind {
   refresh,
   lock,
   link,
+  edit,
 }
 
 class Glyph extends StatelessWidget {
@@ -392,6 +393,9 @@ class _GlyphPainter extends CustomPainter {
         poly([14, 4, 20, 4, 20, 10]);
         poly([20, 4, 11, 13]);
         poly([17, 14, 17, 20, 4, 20, 4, 7, 10, 7]);
+      case GlyphKind.edit:
+        poly([4, 20, 4, 16, 15, 5, 19, 9, 8, 20], close: true);
+        poly([12, 8, 16, 12]);
     }
   }
 

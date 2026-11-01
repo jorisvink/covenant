@@ -29,9 +29,9 @@ class _FlocksPageState extends State<FlocksPage> {
     final ok = await confirm(
       title: 'Create a flock',
       text:
-          'A flock is a private group of your devices that can reach each '
-          'other, up to 255 of them. Next you set up its keys on this phone '
-          'and add your devices.',
+          'A flock is a private group of up to 255 of your devices that can '
+          'reach each other. Next you set up its keys on this phone and add '
+          'your devices.',
       action: 'Create',
     );
 
@@ -151,6 +151,7 @@ class FlockCard extends StatelessWidget {
     final r = Reliquary.instance;
     final ambry = r.ambry(flock.id);
     final state = flockState(flock.id);
+    final name = r.flockName(flock.id);
 
     return Panel(
       accent: state == FlockState.ready,
@@ -174,9 +175,17 @@ class FlockCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  flock.id,
-                  style: Styles.cardTitle.copyWith(fontFamily: Fonts.mono),
+                  name ?? flock.id,
+                  style: name == null
+                      ? Styles.cardTitle.copyWith(fontFamily: Fonts.mono)
+                      : Styles.cardTitle,
+                  overflow: TextOverflow.ellipsis,
                 ),
+                if (name != null)
+                  Text(
+                    flock.id,
+                    style: Styles.detail.copyWith(fontFamily: Fonts.mono),
+                  ),
                 const SizedBox(height: 3),
                 Text(
                   flock.problem ??
@@ -229,8 +238,8 @@ FlockState flockState(String flock) {
 String stateText(FlockState state) => switch (state) {
   FlockState.noKeks => 'set up needed',
   FlockState.external => 'managed externally',
-  FlockState.noAmbry => 'update not sent',
-  FlockState.expired => 'keys expired',
+  FlockState.noAmbry => 'secrets not sent',
+  FlockState.expired => 'secrets expired',
   FlockState.ready => 'ready',
 };
 
@@ -238,12 +247,12 @@ String devicesText(int n) => n == 1 ? '1 device' : '$n devices';
 
 String ambryTag(AmbryNote ambry) {
   if (!ambry.uploaded) {
-    return 'Update not sent';
+    return 'Secrets not sent';
   }
 
   if (ambry.expired) {
-    return 'Keys expired';
+    return 'Secrets expired';
   }
 
-  return 'Keys valid ${ambry.daysLeft}d';
+  return 'Secrets valid ${ambry.daysLeft}d';
 }

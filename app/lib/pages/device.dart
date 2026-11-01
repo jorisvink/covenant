@@ -61,7 +61,7 @@ class _DevicePageState extends State<DevicePage> {
                 'so it can never connect again, even in the wrong hands.'
           : device.approved
           ? 'The device is removed from the flock. It can still connect '
-                'until you send a new key update.'
+                'until you send new encrypted secrets.'
           : 'The device will not join this flock.',
       action: device.approved ? 'Remove' : 'Reject',
     );
@@ -162,7 +162,10 @@ class _DevicePageState extends State<DevicePage> {
                   const SizedBox(height: 12),
                   Text(_name, style: Styles.state),
                   const SizedBox(height: 4),
-                  Text('In flock ${widget.flock}', style: Styles.detail),
+                  Text(
+                    'In flock ${_r.flockLabel(widget.flock)}',
+                    style: Styles.detail,
+                  ),
                 ],
               ),
             ),
