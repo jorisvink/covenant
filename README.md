@@ -65,3 +65,6 @@ COVENANT_HANDOFF_GROUP = <handoff group>
 EOF
 $ make ios
 ```
+
+The COVENANT_HANDOFF_GROUP must match the VIGIL_HANDOFF_GROUP
+from the Vigil project.
