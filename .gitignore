@@ -1,0 +1,6 @@
+obj/
+build/
+libcovenant.a
+tests/core_test
+tools/covenant-restore
+app/ios/Team.xcconfig
