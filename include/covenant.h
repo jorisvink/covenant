@@ -42,10 +42,6 @@ extern "C" {
     (72 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + \
     COVENANT_SIGN_SEED_LEN + 16)
 
-/* The length of sealed KEKs from before the signing seed, version 1. */
-#define COVENANT_KEKS_SEALED_V1_LEN	\
-    (72 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + 16)
-
 /* The length of all KEKs of a flock, kek-0x01 up to kek-0xff. */
 #define COVENANT_KEKS_DATA_LEN		(COVENANT_KEK_COUNT * COVENANT_KEK_LEN)
 
@@ -81,10 +77,6 @@ extern "C" {
 #define COVENANT_BACKUP_LEN		\
     (1648 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + \
     COVENANT_SIGN_SEED_LEN + 16 + 32)
-
-/* The length of a backup from before the signing seed, version 2. */
-#define COVENANT_BACKUP_V2_LEN		\
-    (1648 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + 16 + 32)
 
 /*
  * Library error codes.
@@ -172,8 +164,6 @@ int	covenant_keks_renew(COVENANT *, const void *, size_t,
 	    const void *, size_t, u_int8_t, void *, size_t);
 void	covenant_keks_import(COVENANT *, const void *, size_t,
 	    u_int64_t, const void *, size_t, void *, size_t);
-int	covenant_keks_upgrade(COVENANT *, const void *, size_t,
-	    const void *, size_t, void *, size_t);
 
 int	covenant_ambry_bundle(COVENANT *, const void *, size_t,
 	    const void *, size_t, u_int16_t, void *, size_t,

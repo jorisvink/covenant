@@ -88,13 +88,8 @@ The seed is made together with the KEKs and stays the same when a KEK
 is renewed. It is the seed of the ed25519 key the flock signs device
 names with, see [communication.md](communication.md).
 
-Sealed KEKs of version 1 are 8248 bytes and have no seed. The app still
-lists them. The first time the vault key is unlocked for such a flock,
-the C library opens them with `covenant_keks_upgrade()`, gives them a
-new seed and seals them again as version 2. The app then stores the new
-file and backs the flock up again, so the backup has the seed too. Only
-`covenant_keks_info()` and `covenant_keks_upgrade()` take version 1,
-everything else needs version 2.
+Only version 2 is taken. Sealed KEKs of version 1, from before the
+signing seed, no longer open.
 
 The header is the AAD, so it cannot be changed without the tag failing.
 The flock and the creation time can be read without the vault key. The

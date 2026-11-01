@@ -210,8 +210,7 @@ covenant_backup_seal(struct covenant *ctx, const void *secret, size_t len,
 
 /*
  * Open a backup with the recovery key and seal its KEKs under the
- * vault key into out. A backup of version 2 has no signing seed, the
- * KEKs then get a new one.
+ * vault key into out.
  */
 int
 covenant_backup_restore(struct covenant *ctx, const void *secret, size_t len,
@@ -226,8 +225,7 @@ covenant_backup_restore(struct covenant *ctx, const void *secret, size_t len,
 	PRECOND(root != NULL);
 	PRECOND(root_len == COVENANT_BACKUP_ROOT_LEN);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_BACKUP_LEN ||
-	    in_len == COVENANT_BACKUP_V2_LEN);
+	PRECOND(in_len == COVENANT_BACKUP_LEN);
 	PRECOND(out != NULL);
 	PRECOND(out_len == COVENANT_KEKS_SEALED_LEN);
 
@@ -261,7 +259,7 @@ covenant_backup_info(struct covenant *ctx, const void *in, size_t in_len,
 	PRECOND(in != NULL);
 	PRECOND(info != NULL);
 
-	if (in_len != COVENANT_BACKUP_LEN && in_len != COVENANT_BACKUP_V2_LEN) {
+	if (in_len != COVENANT_BACKUP_LEN) {
 		ctx->last_error = COVENANT_ERROR_PARAMETER;
 		return (-1);
 	}
@@ -292,8 +290,7 @@ covenant_backup_open(struct covenant *ctx, const void *root, size_t root_len,
 	PRECOND(root != NULL);
 	PRECOND(root_len == COVENANT_BACKUP_ROOT_LEN);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_BACKUP_LEN ||
-	    in_len == COVENANT_BACKUP_V2_LEN);
+	PRECOND(in_len == COVENANT_BACKUP_LEN);
 	PRECOND(data != NULL);
 	PRECOND(data_len == COVENANT_KEKS_DATA_LEN);
 	PRECOND(info != NULL);
@@ -421,7 +418,6 @@ backup_keks_open(struct covenant *ctx, const u_int8_t *root, size_t root_len,
 	struct covenant_keks		*keks;
 	struct backup_keys		*keys;
 	struct covenant_cipher		cipher;
-	size_t				data_len;
 	u_int8_t			tag[SANCTUM_TAG_LENGTH];
 	u_int8_t			key[SANCTUM_KEY_LENGTH];
 	u_int8_t			mac[SANCTUM_KEY_LENGTH];
@@ -430,15 +426,10 @@ backup_keks_open(struct covenant *ctx, const u_int8_t *root, size_t root_len,
 	PRECOND(root != NULL);
 	PRECOND(root_len == COVENANT_BACKUP_ROOT_LEN);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_BACKUP_LEN ||
-	    in_len == COVENANT_BACKUP_V2_LEN);
+	PRECOND(in_len == COVENANT_BACKUP_LEN);
 
-	if (in_len == COVENANT_BACKUP_LEN)
-		data_len = COVENANT_KEKS_SECRET_LEN;
-	else
-		data_len = COVENANT_KEKS_DATA_LEN;
-
-	VERIFY(in_len == sizeof(head) + data_len + sizeof(tag) + sizeof(mac));
+	VERIFY(in_len == sizeof(head) + COVENANT_KEKS_SECRET_LEN +
+	    sizeof(tag) + sizeof(mac));
 
 	if (backup_header_verify(ctx, in, in_len, &head) == -1)
 		return (NULL);
@@ -478,9 +469,10 @@ backup_keks_open(struct covenant *ctx, const u_int8_t *root, size_t root_len,
 	nyfe_zeroize(&okm, sizeof(okm));
 	covenant_free(keys, sizeof(*keys));
 
-	data = covenant_alloc(data_len);
-	nyfe_memcpy(data, &in[sizeof(head)], data_len);
-	nyfe_memcpy(tag, &in[sizeof(head) + data_len], sizeof(tag));
+	data = covenant_alloc(COVENANT_KEKS_SECRET_LEN);
+	nyfe_memcpy(data, &in[sizeof(head)], COVENANT_KEKS_SECRET_LEN);
+	nyfe_memcpy(tag, &in[sizeof(head) + COVENANT_KEKS_SECRET_LEN],
+	    sizeof(tag));
 
 	cipher.ctx = covenant_cipher_setup(key, sizeof(key));
 	nyfe_zeroize(key, sizeof(key));
@@ -494,12 +486,12 @@ backup_keks_open(struct covenant *ctx, const u_int8_t *root, size_t root_len,
 	cipher.tag = tag;
 	cipher.pt = data;
 	cipher.ct = data;
-	cipher.data_len = data_len;
+	cipher.data_len = COVENANT_KEKS_SECRET_LEN;
 
 	if (covenant_cipher_decrypt(&cipher) == -1) {
 		covenant_cipher_cleanup(cipher.ctx);
 		nyfe_zeroize(&cipher, sizeof(cipher));
-		covenant_free(data, data_len);
+		covenant_free(data, COVENANT_KEKS_SECRET_LEN);
 		ctx->last_error = COVENANT_ERROR_RECOVERY_KEY;
 		return (NULL);
 	}
@@ -511,16 +503,8 @@ backup_keks_open(struct covenant *ctx, const u_int8_t *root, size_t root_len,
 	keks->flock = be64toh(head.flock);
 	keks->created = be64toh(head.created);
 
-	if (data_len == COVENANT_KEKS_SECRET_LEN) {
-		covenant_keks_unpack(keks, data, data_len);
-	} else {
-		nyfe_memcpy(keks->kek, data, sizeof(keks->kek));
-		nyfe_random_init();
-		nyfe_random_bytes(keks->seed, sizeof(keks->seed));
-		nyfe_random_init();
-	}
-
-	covenant_free(data, data_len);
+	covenant_keks_unpack(keks, data, COVENANT_KEKS_SECRET_LEN);
+	covenant_free(data, COVENANT_KEKS_SECRET_LEN);
 
 	return (keks);
 }
@@ -583,8 +567,7 @@ backup_mac_calculate(const u_int8_t *key, size_t key_len, const u_int8_t *in,
 	PRECOND(key != NULL);
 	PRECOND(key_len == SANCTUM_KEY_LENGTH);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_BACKUP_LEN - SANCTUM_KEY_LENGTH ||
-	    in_len == COVENANT_BACKUP_V2_LEN - SANCTUM_KEY_LENGTH);
+	PRECOND(in_len == COVENANT_BACKUP_LEN - SANCTUM_KEY_LENGTH);
 	PRECOND(out != NULL);
 	PRECOND(out_len == SANCTUM_KEY_LENGTH);
 
@@ -819,23 +802,15 @@ static int
 backup_header_verify(struct covenant *ctx, const u_int8_t *in, size_t in_len,
     struct covenant_backup_head *head)
 {
-	u_int32_t	want;
-
 	PRECOND(ctx != NULL);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_BACKUP_LEN ||
-	    in_len == COVENANT_BACKUP_V2_LEN);
+	PRECOND(in_len == COVENANT_BACKUP_LEN);
 	PRECOND(head != NULL);
 
 	memcpy(head, in, sizeof(*head));
 
-	if (in_len == COVENANT_BACKUP_LEN)
-		want = COVENANT_BACKUP_VERSION;
-	else
-		want = COVENANT_BACKUP_V2;
-
 	if (memcmp(head->magic, COVENANT_BACKUP_MAGIC, sizeof(head->magic)) ||
-	    be32toh(head->version) != want) {
+	    be32toh(head->version) != COVENANT_BACKUP_VERSION) {
 		ctx->last_error = COVENANT_ERROR_VERSION;
 		return (-1);
 	}

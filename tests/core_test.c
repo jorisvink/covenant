@@ -60,7 +60,6 @@ static void	test_config_name(const struct covenant_keks *, const char *,
 		    u_int8_t, const char *);
 static void	test_provision_qr(const u_int8_t *, const u_int8_t *);
 static void	test_backup_restore(const u_int8_t *, const u_int8_t *);
-static void	test_upgrade(void);
 static void	test_provision_config(const u_int8_t *, const u_int8_t *);
 static void	test_ambry_bundle(const u_int8_t *, const u_int8_t *,
 		    const u_int8_t *);
@@ -85,7 +84,6 @@ main(void)
 	CHECK(covenant_random_bytes(ctx, secret, sizeof(secret)) == 0);
 	CHECK(covenant_random_bytes(NULL, secret, sizeof(secret)) == -1);
 
-	test_upgrade();
 
 	have = test_ambry_find(getenv("AMBRY"));
 
@@ -163,6 +161,15 @@ test_keks_seal(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_keks_check(ctx, secret, COVENANT_VAULT_KEY_LEN,
 	    copy, sizeof(copy)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+
+	/* Version 1, from before the signing seed, is no longer taken. */
+	memcpy(copy, sealed, sizeof(copy));
+	copy[7] = 0x01;
+	CHECK(covenant_keks_info(ctx, copy, sizeof(copy), &info) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+	CHECK(covenant_keks_info(ctx, copy,
+	    sizeof(copy) - COVENANT_SIGN_SEED_LEN, &info) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
 
 	/* Two seals of the same flock must never look the same. */
 	covenant_keks_generate(ctx, secret, COVENANT_VAULT_KEY_LEN,
@@ -762,6 +769,18 @@ test_backup_restore(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_RECOVERY_KEY);
 	backup[sizeof(backup) - 1] ^= 0x01;
 
+	backup[7] = 0x02;
+	CHECK(covenant_backup_info(ctx, backup, sizeof(backup), &bi) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+	CHECK(covenant_backup_restore(ctx, secret2, sizeof(secret2),
+	    root, sizeof(root), backup, sizeof(backup),
+	    restored, sizeof(restored)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+	CHECK(covenant_backup_info(ctx, backup,
+	    sizeof(backup) - COVENANT_SIGN_SEED_LEN, &bi) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	backup[7] = 0x03;
+
 	backup[0] = 'X';
 	CHECK(covenant_backup_info(ctx, backup, sizeof(backup), &bi) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
@@ -968,84 +987,6 @@ test_ambry_reference(const char *dir, u_int8_t *data, size_t data_len)
 		    derived, sizeof(derived));
 		CHECK(memcmp(internal, derived, sizeof(derived)) == 0);
 	}
-}
-
-/*
- * Sealed KEKs of version 1 and a backup of version 2, both made by the
- * code from before the signing seed, must still be listed, upgraded and
- * restored with all of their KEKs. The files are in tests/data, sealed
- * under the vault key in tests/data/vk.
- */
-static void
-test_upgrade(void)
-{
-	struct covenant_info		ki;
-	struct covenant_backup_info	bi;
-	struct covenant_keks		*a, *b;
-	u_int8_t			*v1, *v2, *ref, *up, *res;
-	u_int8_t			vk[COVENANT_VAULT_KEY_LEN];
-	u_int8_t			zero[COVENANT_SIGN_SEED_LEN];
-	u_int8_t			root[COVENANT_BACKUP_ROOT_LEN];
-
-	CHECK((v1 = malloc(COVENANT_KEKS_SEALED_V1_LEN)) != NULL);
-	CHECK((v2 = malloc(COVENANT_BACKUP_V2_LEN)) != NULL);
-	CHECK((ref = malloc(COVENANT_KEKS_DATA_LEN)) != NULL);
-	CHECK((up = malloc(COVENANT_KEKS_SEALED_LEN)) != NULL);
-	CHECK((res = malloc(COVENANT_KEKS_SEALED_LEN)) != NULL);
-
-	test_file_read("tests/data/vk", vk, sizeof(vk));
-	test_file_read("tests/data/root", root, sizeof(root));
-	test_file_read("tests/data/sealed.v1", v1, COVENANT_KEKS_SEALED_V1_LEN);
-	test_file_read("tests/data/backup.v2", v2, COVENANT_BACKUP_V2_LEN);
-	test_file_read("tests/data/keks.ref", ref, COVENANT_KEKS_DATA_LEN);
-
-	memset(zero, 0, sizeof(zero));
-
-	CHECK(covenant_keks_info(ctx, v1, COVENANT_KEKS_SEALED_V1_LEN,
-	    &ki) == 0);
-	CHECK(ki.flock == TEST_FLOCK);
-	CHECK(covenant_keks_info(ctx, v1, COVENANT_KEKS_SEALED_V1_LEN - 1,
-	    &ki) == -1);
-	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
-
-	vk[0] ^= 0x01;
-	CHECK(covenant_keks_upgrade(ctx, vk, sizeof(vk), v1,
-	    COVENANT_KEKS_SEALED_V1_LEN, up, COVENANT_KEKS_SEALED_LEN) == -1);
-	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
-	vk[0] ^= 0x01;
-
-	CHECK(covenant_keks_upgrade(ctx, vk, sizeof(vk), v1,
-	    COVENANT_KEKS_SEALED_V1_LEN, up, COVENANT_KEKS_SEALED_LEN) == 0);
-
-	CHECK(covenant_backup_info(ctx, v2, COVENANT_BACKUP_V2_LEN, &bi) == 0);
-	CHECK(bi.flock == TEST_FLOCK);
-	CHECK(covenant_backup_restore(ctx, vk, sizeof(vk), root, sizeof(root),
-	    v2, COVENANT_BACKUP_V2_LEN, res, COVENANT_KEKS_SEALED_LEN) == 0);
-
-	covenant_lock();
-	CHECK((a = covenant_keks_open(ctx, vk, sizeof(vk),
-	    up, COVENANT_KEKS_SEALED_LEN)) != NULL);
-	CHECK((b = covenant_keks_open(ctx, vk, sizeof(vk),
-	    res, COVENANT_KEKS_SEALED_LEN)) != NULL);
-
-	CHECK(a->flock == ki.flock);
-	CHECK(a->created == ki.created);
-	CHECK(memcmp(a->kek, ref, COVENANT_KEKS_DATA_LEN) == 0);
-	CHECK(memcmp(b->kek, ref, COVENANT_KEKS_DATA_LEN) == 0);
-	CHECK(memcmp(a->seed, zero, sizeof(zero)) != 0);
-	CHECK(memcmp(b->seed, zero, sizeof(zero)) != 0);
-
-	covenant_keks_close(a);
-	covenant_keks_close(b);
-	covenant_unlock();
-
-	nyfe_mem_zero(ref, COVENANT_KEKS_DATA_LEN);
-
-	free(v1);
-	free(v2);
-	free(ref);
-	free(up);
-	free(res);
 }
 
 /*

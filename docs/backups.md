@@ -100,9 +100,7 @@ mac		32
 Restoring a backup brings the signing seed back too, so the device
 names signed before keep verifying.
 
-Backups of version 2 are 9856 bytes and have no seed. They can still be
-listed and restored, the restored KEKs then get a new seed. New backups
-are always version 3.
+Only version 3 is accepted, older versions no longer open.
 
 The flock and both times can be read without the recovery key. The app
 uses that to list what is in the backup folder.

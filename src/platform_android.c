@@ -54,8 +54,6 @@ JNIEXPORT jbyteArray JNICALL	JNI(keksGenerate)(JNIEnv *, jclass,
 				    jlong, jbyteArray, jlong);
 JNIEXPORT jbyteArray JNICALL	JNI(keksRenew)(JNIEnv *, jclass,
 				    jlong, jbyteArray, jbyteArray, jint);
-JNIEXPORT jbyteArray JNICALL	JNI(keksUpgrade)(JNIEnv *, jclass,
-				    jlong, jbyteArray, jbyteArray);
 JNIEXPORT jbyteArray JNICALL	JNI(ambryBundle)(JNIEnv *, jclass, jlong,
 				    jbyteArray, jbyteArray, jint, jintArray);
 JNIEXPORT jbyteArray JNICALL	JNI(provision)(JNIEnv *, jclass, jlong,
@@ -334,48 +332,6 @@ JNI(keksRenew)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 	if (covenant_keks_renew(cov, key.data, key.length,
 	    sealed.data, sealed.length, kek, renewed, sizeof(renewed)) == 0)
 		out = jni_array_create(env, renewed, sizeof(renewed));
-
-	jni_bytes_free(&key);
-	jni_bytes_free(&sealed);
-
-	return (out);
-}
-
-/*
- * Upgrade sealed KEKs of version 1, returns them sealed again with a
- * signing seed.
- */
-JNIEXPORT jbyteArray JNICALL
-JNI(keksUpgrade)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
-    jbyteArray in)
-{
-	jbyteArray		out;
-	COVENANT		*cov;
-	struct jni_bytes	key, sealed;
-	u_int8_t		upgraded[COVENANT_KEKS_SEALED_LEN];
-
-	PRECOND(env != NULL);
-
-	(void)cls;
-
-	if ((cov = covenant_ctx(ctx)) == NULL)
-		return (NULL);
-
-	if (jni_bytes_copy_exact(env, ctx, secret,
-	    COVENANT_VAULT_KEY_LEN, &key) == -1)
-		return (NULL);
-
-	if (jni_bytes_copy_exact(env, ctx, in,
-	    COVENANT_KEKS_SEALED_V1_LEN, &sealed) == -1) {
-		jni_bytes_free(&key);
-		return (NULL);
-	}
-
-	out = NULL;
-
-	if (covenant_keks_upgrade(cov, key.data, key.length,
-	    sealed.data, sealed.length, upgraded, sizeof(upgraded)) == 0)
-		out = jni_array_create(env, upgraded, sizeof(upgraded));
 
 	jni_bytes_free(&key);
 	jni_bytes_free(&sealed);
@@ -730,22 +686,14 @@ JNI(backupRestore)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 		return (NULL);
 	}
 
-	if (jni_bytes_copy(env, in, &backup) == -1) {
+	if (jni_bytes_copy_exact(env, ctx, in,
+	    COVENANT_BACKUP_LEN, &backup) == -1) {
 		jni_bytes_free(&key);
 		jni_bytes_free(&rk);
 		return (NULL);
 	}
 
 	out = NULL;
-
-	if (backup.length != COVENANT_BACKUP_LEN &&
-	    backup.length != COVENANT_BACKUP_V2_LEN) {
-		cov->last_error = COVENANT_ERROR_PARAMETER;
-		jni_bytes_free(&key);
-		jni_bytes_free(&rk);
-		jni_bytes_free(&backup);
-		return (NULL);
-	}
 
 	if (covenant_backup_restore(cov, key.data, key.length,
 	    rk.data, rk.length, backup.data, backup.length,

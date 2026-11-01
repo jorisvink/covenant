@@ -141,8 +141,7 @@ covenant_keks_renew(struct covenant *ctx, const void *secret, size_t len,
 }
 
 /*
- * Return encrypted KEK bundle its meta-data, this also works for sealed
- * KEKs that still need covenant_keks_upgrade().
+ * Return encrypted KEK bundle its meta-data.
  */
 int
 covenant_keks_info(struct covenant *ctx, const void *in, size_t in_len,
@@ -154,8 +153,7 @@ covenant_keks_info(struct covenant *ctx, const void *in, size_t in_len,
 	PRECOND(in != NULL);
 	PRECOND(info != NULL);
 
-	if (in_len != COVENANT_KEKS_SEALED_LEN &&
-	    in_len != COVENANT_KEKS_SEALED_V1_LEN) {
+	if (in_len != COVENANT_KEKS_SEALED_LEN) {
 		ctx->last_error = COVENANT_ERROR_PARAMETER;
 		return (-1);
 	}
@@ -194,56 +192,6 @@ covenant_keks_check(struct covenant *ctx, const void *secret, size_t len,
 	}
 
 	covenant_keks_close(keks);
-	covenant_unlock();
-
-	return (0);
-}
-
-/*
- * Upgrade sealed KEKs of version 1, which have no signing seed, by giving
- * them a new signing seed and sealing them again into out.
- */
-int
-covenant_keks_upgrade(struct covenant *ctx, const void *secret, size_t len,
-    const void *in, size_t in_len, void *out, size_t out_len)
-{
-	struct covenant_keks_head	hdr;
-	u_int8_t			*data;
-	struct covenant_keks		*keks;
-
-	PRECOND(ctx != NULL);
-	PRECOND(secret != NULL);
-	PRECOND(len == COVENANT_VAULT_KEY_LEN);
-	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_KEKS_SEALED_V1_LEN);
-	PRECOND(out != NULL);
-	PRECOND(out_len == COVENANT_KEKS_SEALED_LEN);
-
-	covenant_lock();
-
-	data = covenant_alloc(COVENANT_KEKS_DATA_LEN);
-
-	if (keks_unseal(ctx, secret, len, in, in_len, &hdr,
-	    data, COVENANT_KEKS_DATA_LEN) == -1) {
-		covenant_free(data, COVENANT_KEKS_DATA_LEN);
-		covenant_unlock();
-		return (-1);
-	}
-
-	keks = covenant_alloc(sizeof(*keks));
-	keks->flock = be64toh(hdr.flock);
-	keks->created = be64toh(hdr.created);
-
-	nyfe_memcpy(keks->kek, data, sizeof(keks->kek));
-	covenant_free(data, COVENANT_KEKS_DATA_LEN);
-
-	nyfe_random_init();
-	nyfe_random_bytes(keks->seed, sizeof(keks->seed));
-	nyfe_random_init();
-
-	covenant_keks_seal(secret, len, keks, out, out_len);
-	covenant_keks_close(keks);
-
 	covenant_unlock();
 
 	return (0);
@@ -473,13 +421,11 @@ keks_seal_key_derive(const u_int8_t *secret, size_t klen,
 static int
 keks_header_verify(struct covenant *ctx, const void *in, size_t in_len)
 {
-	u_int32_t				want;
 	const struct covenant_keks_head		*hdr;
 
 	PRECOND(ctx != NULL);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_KEKS_SEALED_LEN ||
-	    in_len == COVENANT_KEKS_SEALED_V1_LEN);
+	PRECOND(in_len == COVENANT_KEKS_SEALED_LEN);
 
 	hdr = in;
 
@@ -488,12 +434,7 @@ keks_header_verify(struct covenant *ctx, const void *in, size_t in_len)
 		return (-1);
 	}
 
-	if (in_len == COVENANT_KEKS_SEALED_LEN)
-		want = COVENANT_KEKS_VERSION;
-	else
-		want = COVENANT_KEKS_V1;
-
-	if (be32toh(hdr->version) != want) {
+	if (be32toh(hdr->version) != COVENANT_KEKS_VERSION) {
 		ctx->last_error = COVENANT_ERROR_VERSION;
 		return (-1);
 	}
@@ -502,8 +443,8 @@ keks_header_verify(struct covenant *ctx, const void *in, size_t in_len)
 }
 
 /*
- * Check the header of sealed KEKs of either version and decrypt what
- * follows it into data, which is everything up to the tag.
+ * Check the header of sealed KEKs and decrypt what follows it into data,
+ * which is everything up to the tag.
  */
 static int
 keks_unseal(struct covenant *ctx, const u_int8_t *secret, size_t len,
@@ -519,10 +460,10 @@ keks_unseal(struct covenant *ctx, const u_int8_t *secret, size_t len,
 	PRECOND(secret != NULL);
 	PRECOND(len == COVENANT_VAULT_KEY_LEN);
 	PRECOND(in != NULL);
-	PRECOND(in_len == COVENANT_KEKS_SEALED_LEN ||
-	    in_len == COVENANT_KEKS_SEALED_V1_LEN);
+	PRECOND(in_len == COVENANT_KEKS_SEALED_LEN);
 	PRECOND(hdr != NULL);
 	PRECOND(data != NULL);
+	PRECOND(data_len == COVENANT_KEKS_SECRET_LEN);
 
 	VERIFY(in_len == sizeof(*hdr) + data_len + sizeof(tag));
 
