@@ -14,7 +14,7 @@ Covenant allows you to:
 - Manage your flocks.
 - Manage your devices in a flock.
 - Manage KEKs and ambry distributions.
-- Provision new devices directly from your phone.
+- Provision phones directly from your own phone.
 
 # Disclaimer
 
