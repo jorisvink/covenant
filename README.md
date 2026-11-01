@@ -14,7 +14,14 @@ Covenant allows you to:
 - Manage your flocks.
 - Manage your devices in a flock.
 - Manage KEKs and ambry distributions.
-- Provision phones directly from your own phone.
+- Provision Vigil directly from your own phone.
+
+What you cannot do:
+
+- Provision things on your non-phone devices.
+
+The way provisioning works is via a QRcode that can be scanned by Vigil
+or imported directly on the same phone via Handover.
 
 # Disclaimer
 
