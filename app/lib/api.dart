@@ -46,7 +46,6 @@ class Session {
     'natport': natport,
   };
 
-  /// The account page lives next to the API, at /account/login.
   String get accountPage =>
       Uri.parse(api).replace(path: '/account/login').toString();
 }
@@ -304,7 +303,6 @@ class Api {
     }
   }
 
-  /// rlq register: a brand new account.
   static Future<Account> register(String api) async {
     final (status, data) = await _request(
       'POST',
@@ -329,7 +327,6 @@ class Api {
     );
   }
 
-  /// rlq login: a new token for an existing account.
   static Future<Session> login(String api, String key) async {
     final (status, data) = await _request(
       'POST',
@@ -373,7 +370,6 @@ class Api {
     }
   }
 
-  /// The cathedrals as "descr - ip:port" or "ip:port".
   Future<List<String>> cathedrals() async {
     final text = await _get('cathedrals');
     return text.split('\n').where((l) => l.trim().isNotEmpty).toList();
@@ -411,7 +407,6 @@ class Api {
     return [for (final d in list.cast<Map<String, dynamic>>()) Device(d)];
   }
 
-  /// rlq flock join, but with the cosk made on this phone.
   Future<Registration> deviceCreate(String flock, Uint8List pk) async {
     final json = _json(await _post('device/$flock/create', pk));
     final id = json['cathedral_id'] as String? ?? '';
@@ -424,7 +419,6 @@ class Api {
     return Registration(id, secret, json['flock'] as String? ?? flock);
   }
 
-  /// Approve the device and return the KEK it was given.
   Future<int> deviceApprove(String flock, String device) async {
     final text = await _post('device/$flock/$device/approve');
     final match = RegExp(r'kek-0x([0-9a-f]{2})').firstMatch(text);
@@ -433,7 +427,6 @@ class Api {
       return int.parse(match.group(1)!, radix: 16);
     }
 
-    // Already approved, the device list knows its KEK.
     for (final d in await devices(flock)) {
       if (d.id == device && d.approved) {
         return d.kek;

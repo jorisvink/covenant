@@ -79,7 +79,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
   bool _blockIpv6 = true;
   String? _cathedral;
 
-  // Where we are, so a failed step can be retried without starting over.
   bool _running = false;
   _Step? _at;
   String? _failed;
@@ -199,8 +198,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
   }
 
   /// The public part of the configuration, as tools/vigil-config would
-  /// write it up to the keys. The C library adds kek, cathedral_secret
-  /// and cathedral_cosk.
+  /// write it up to the keys. The C library adds kek, cathedral_secret,
+  /// cathedral_cosk, name_pubkey and name_signature.
   String _config(Registration reg, int kek) {
     final out = StringBuffer()
       ..writeln('vigil 1')
@@ -360,7 +359,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
         config: _config(_reg!, _kek!),
       );
 
-      // The C library consumed the cosk, there is nothing left to clean up.
       _cosk = null;
 
       await _r.nameDevice(widget.flock, _reg!.id, _instance.text.trim());
@@ -390,7 +388,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
     }
   }
 
-  /// Throw away a half provisioned device.
   Future<void> _discard() async {
     final reg = _reg;
 
@@ -402,7 +399,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
       }
     }
 
-    // pop, not maybePop: the PopScope would only ask again.
     navigatorKey.currentState?.pop();
   }
 
@@ -444,7 +440,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
     return null;
   }
 
-  /// The key number the device being added now will get.
   int? get _ownKek => _nextKek(0);
 
   Future<void> _pickPeer() async {
@@ -560,6 +555,12 @@ class _ProvisionPageState extends State<ProvisionPage> {
               allow: _name,
               maxLength: 63,
             ),
+            if (_mode == Mode.gospel)
+              const Text(
+                'The given name is signed by Covenant and authenticated '
+                'by all other devices.',
+                style: Styles.detail,
+              ),
             GroupLabel('How it connects', index: ++index),
             Choice<Mode>(
               options: [
@@ -785,7 +786,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
     ];
   }
 
-  /// The name of the device picked to connect to, if we know it.
   String? _peerName() {
     if (_peerNext) {
       return 'The next device you add, it gets KEK ID ${_peer.text}. '

@@ -12,14 +12,12 @@ class CoreError implements Exception {
   final String code;
   final String message;
 
-  /// The user backed out of unlocking the vault.
   bool get cancelled => code == 'cancelled';
 
   @override
   String toString() => message;
 }
 
-/// Where the vault key lives, from strongest to weakest.
 enum Hardware { strongbox, secureEnclave, tee, software, none }
 
 class Vault {
@@ -27,10 +25,8 @@ class Vault {
 
   final Map<String, dynamic> json;
 
-  /// The vault key exists, flocks can have KEKs.
   bool get ready => json['ready'] as bool? ?? false;
 
-  /// The vault key cannot be opened anymore, the lock screen went away.
   bool get invalidated => json['invalidated'] as bool? ?? false;
 
   Hardware get hardware => switch (json['hardware'] as String? ?? 'none') {
@@ -49,7 +45,6 @@ class Vault {
     Hardware.none => 'Not set up yet',
   };
 
-  /// What protects the vault key besides the hardware.
   String get auth => json['auth'] as String? ?? '';
 
   BackupState? get backup {
@@ -70,7 +65,6 @@ class Vault {
   }
 }
 
-/// The sealed KEKs of a flock as stored on this phone.
 class KekSet {
   KekSet(this.json);
 
@@ -81,7 +75,6 @@ class KekSet {
   DateTime get created =>
       DateTime.fromMillisecondsSinceEpoch((json['created'] as int) * 1000);
 
-  /// none, pending or exported.
   String get backup => json['backup'] as String? ?? 'none';
 }
 
@@ -95,7 +88,6 @@ class BackupState {
   String? get folder => json['folder'] as String?;
 }
 
-/// A backup found in the backup folder.
 class BackupFile {
   BackupFile(this.json);
 
@@ -125,7 +117,6 @@ class Restored {
   List<String> get failed => _list('failed');
 }
 
-/// The recovery key as the user typed it, null when it is not one.
 Uint8List? recoveryKey(String text) {
   final hex = text.replaceAll(RegExp(r'\s'), '').toLowerCase();
   if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(hex)) {
@@ -138,14 +129,12 @@ Uint8List? recoveryKey(String text) {
   ]);
 }
 
-/// A fresh ambry bundle, safe to hand to the reliquary.
 class Bundle {
   Bundle(this.data, this.generation, this.expires);
 
   final Uint8List data;
   final int generation;
 
-  /// Days since the ambry epoch, see SANCTUM_AMBRY_AGE_EPOCH.
   final int expires;
 
   DateTime get expiry => ambryDay(expires);
@@ -156,7 +145,6 @@ const _ambryEpoch = 1697855580;
 DateTime ambryDay(int day) =>
     DateTime.fromMillisecondsSinceEpoch((_ambryEpoch + day * 86400) * 1000);
 
-/// A cosk pair waiting in the C library for its device to be registered.
 class Cosk {
   Cosk(this.handle, this.pk);
 
@@ -175,7 +163,6 @@ class QrCode {
   void wipe() => modules.fillRange(0, modules.length, 0);
 }
 
-/// The COVENANT_ERROR_* codes from include/covenant.h.
 String _coreError(int code) => switch (code) {
   1 => 'The phone ran out of memory, try again.',
   2 => 'Something was not filled in correctly.',
@@ -225,15 +212,12 @@ class Core {
     );
   }
 
-  /// New KEKs for the flock and the first ambry bundle made from them.
   Future<Bundle> generate(String flock, int days) =>
       _bundle('keksGenerate', {'flock': flock, 'days': days});
 
-  /// Renew the KEK of one device and bundle the flock again.
   Future<Bundle> renew(String flock, int kek, int days) =>
       _bundle('keksRenew', {'flock': flock, 'kek': kek, 'days': days});
 
-  /// A new ambry bundle from the KEKs we already have.
   Future<Bundle> bundle(String flock, int days) =>
       _bundle('bundle', {'flock': flock, 'days': days});
 
@@ -265,7 +249,6 @@ class Core {
       'config': config,
     });
 
-    // What the channel hands us is read only, keep a copy we can wipe.
     return QrCode(
       r!['side'] as int,
       Uint8List.fromList(r['modules'] as Uint8List),
@@ -289,13 +272,11 @@ class Core {
     'config': config,
   });
 
-  /// A new recovery key, the caller wipes it.
   Future<Uint8List> backupKey() async =>
       Uint8List.fromList(await _call<Uint8List>('backupKey') ?? Uint8List(0));
 
   Future<void> backupAll() => _call<String>('backupAll');
 
-  /// The name of the folder the user picked, null when they backed out.
   Future<String?> backupFolder() => _call<String>('backupFolder');
 
   Future<int> backupExport() async => await _call<int>('backupExport') ?? 0;
@@ -331,7 +312,6 @@ class Core {
 
   Future<void> sessionClear() => _call<String>('sessionClear');
 
-  /// Bookkeeping that is not secret, which bundle went up and when.
   Future<Map<String, dynamic>> prefs() async =>
       jsonDecode(await _call<String>('prefs') ?? '{}') as Map<String, dynamic>;
 

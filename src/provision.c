@@ -16,6 +16,7 @@
 
 #include <sys/types.h>
 
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -30,12 +31,15 @@
 /* The largest key we hex encode into the configuration, with its NUL. */
 #define CONFIG_HEX_MAX		((SANCTUM_ED25519_SIGN_SECRET_LENGTH * 2) + 1)
 
+static int	provision_name_valid(const char *);
 static int	provision_hex_decode(const char *, u_int8_t *, size_t);
 static void	provision_hex_encode(const u_int8_t *, size_t, char *, size_t);
 static int	provision_device_check(struct covenant *,
 		    const struct covenant_device *);
 static int	provision_config_check(struct covenant *, const char *,
-		    u_int64_t, u_int8_t);
+		    u_int64_t, u_int8_t, char *, size_t);
+static void	provision_name_sign(const struct covenant_keks *, u_int8_t,
+		    const char *, u_int8_t *, size_t, u_int8_t *, size_t);
 static int	provision_device_config(struct covenant *,
 		    const struct covenant_device *, char *, size_t,
 		    struct covenant_cosk **);
@@ -43,12 +47,14 @@ static int	provision_device_config(struct covenant *,
 static struct covenant_cosk	*provision_cosk_lookup(struct covenant *,
 				    u_int32_t);
 
-/* The options that carry keys, only we get to add those. */
+/* The options that carry keys or signatures, only we get to add those. */
 static const char *config_keys[] = {
 	"kek",
 	"secret",
+	"name_pubkey",
 	"cathedral_secret",
 	"cathedral_cosk",
+	"name_signature",
 	NULL
 };
 
@@ -251,6 +257,9 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 {
 	struct covenant_buf	buf;
 	char			hex[CONFIG_HEX_MAX];
+	char			name[COVENANT_NAME_MAX + 1];
+	u_int8_t		sig[COVENANT_SIGNATURE_LEN];
+	u_int8_t		pk[SANCTUM_ED25519_SIGN_PUBLIC_LENGTH];
 
 	PRECOND(ctx != NULL);
 	PRECOND(keks != NULL);
@@ -263,7 +272,8 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 	PRECOND(out != NULL);
 	PRECOND(out_len > 0);
 
-	if (provision_config_check(ctx, public, keks->flock, kek) == -1)
+	if (provision_config_check(ctx, public, keks->flock, kek,
+	    name, sizeof(name)) == -1)
 		return (-1);
 
 	nyfe_zeroize_register(hex, sizeof(hex));
@@ -274,8 +284,8 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 	if (public[strlen(public) - 1] != '\n')
 		covenant_buf_appendf(&buf, "\n");
 
-	provision_hex_encode(keks->kek[kek - 1], sizeof(keks->kek[kek - 1]),
-	    hex, sizeof(hex));
+	provision_hex_encode(keks->kek[kek - 1],
+	    sizeof(keks->kek[kek - 1]), hex, sizeof(hex));
 	covenant_buf_appendf(&buf, "kek %s\n", hex);
 
 	provision_hex_encode(cs, cs_len, hex, sizeof(hex));
@@ -283,6 +293,14 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 
 	provision_hex_encode(sk, sk_len, hex, sizeof(hex));
 	covenant_buf_appendf(&buf, "cathedral_cosk %s\n", hex);
+
+	provision_name_sign(keks, kek, name, pk, sizeof(pk), sig, sizeof(sig));
+
+	provision_hex_encode(pk, sizeof(pk), hex, sizeof(hex));
+	covenant_buf_appendf(&buf, "name_pubkey %s\n", hex);
+
+	provision_hex_encode(sig, sizeof(sig), hex, sizeof(hex));
+	covenant_buf_appendf(&buf, "name_signature %s\n", hex);
 
 	nyfe_zeroize(hex, sizeof(hex));
 
@@ -364,20 +382,23 @@ provision_device_config(struct covenant *ctx, const struct covenant_device *dev,
 
 /*
  * Make sure the public part is a vigil configuration without keys for
- * the flock the KEKs belong to and with an spi that starts with the KEK.
+ * the flock the KEKs belong to, with an spi that starts with the KEK and
+ * with exactly one instance, which is copied into name.
  */
 static int
 provision_config_check(struct covenant *ctx, const char *public,
-    u_int64_t flock, u_int8_t kek)
+    u_int64_t flock, u_int8_t kek, char *name, size_t name_len)
 {
 	size_t		len, idx;
-	int		ret, flocks, spis;
 	char		*line, *next, *opt;
+	int		ret, flocks, spis, names;
 	char		spi[8], want[32], buf[CONFIG_PUBLIC_MAX + 1];
 
 	PRECOND(ctx != NULL);
 	PRECOND(public != NULL);
 	PRECOND(kek != 0);
+	PRECOND(name != NULL);
+	PRECOND(name_len == COVENANT_NAME_MAX + 1);
 
 	len = strlen(public);
 
@@ -412,6 +433,7 @@ provision_config_check(struct covenant *ctx, const char *public,
 		covenant_fatal("snprintf on flock");
 
 	spis = 0;
+	names = 0;
 	flocks = 0;
 
 	for (line = buf; line != NULL; line = next) {
@@ -451,14 +473,101 @@ provision_config_check(struct covenant *ctx, const char *public,
 			}
 			spis++;
 		}
+
+		if (!strcmp(line, "instance")) {
+			if (provision_name_valid(opt) == -1) {
+				ctx->last_error = COVENANT_ERROR_CONFIG;
+				return (-1);
+			}
+
+			ret = snprintf(name, name_len, "%s", opt);
+			if (ret < 0 || (size_t)ret >= name_len)
+				covenant_fatal("snprintf on instance");
+
+			names++;
+		}
 	}
 
-	if (flocks != 1 || spis != 1) {
+	if (flocks != 1 || spis != 1 || names != 1) {
 		ctx->last_error = COVENANT_ERROR_CONFIG;
 		return (-1);
 	}
 
 	return (0);
+}
+
+/*
+ * Check that name is an instance name vigil accepts, using the same
+ * rules as its config_parse_instance().
+ */
+static int
+provision_name_valid(const char *name)
+{
+	size_t		idx, len;
+
+	PRECOND(name != NULL);
+
+	len = strlen(name);
+	if (len == 0 || len > COVENANT_NAME_MAX)
+		return (-1);
+
+	for (idx = 0; idx < len; idx++) {
+		if (!isalnum((unsigned char)name[idx]) && name[idx] != '-' &&
+		    name[idx] != '_' && name[idx] != '.' && name[idx] != ' ')
+			return (-1);
+	}
+
+	return (0);
+}
+
+/*
+ * Derive the signing key of the flock from its seed, return its public
+ * half in pk and sign the name of the device into sig. See
+ * COVENANT_NAME_LABEL for what is signed.
+ */
+static void
+provision_name_sign(const struct covenant_keks *keks, u_int8_t kek,
+    const char *name, u_int8_t *pk, size_t pk_len, u_int8_t *sig,
+    size_t sig_len)
+{
+	u_int64_t	flock;
+	size_t		len, off;
+	u_int8_t	msg[COVENANT_NAME_MSG_MAX];
+	u_int8_t	sk[SANCTUM_ED25519_SIGN_SECRET_LENGTH];
+
+	PRECOND(keks != NULL);
+	PRECOND(kek != 0);
+	PRECOND(name != NULL);
+	PRECOND(pk != NULL);
+	PRECOND(pk_len == SANCTUM_ED25519_SIGN_PUBLIC_LENGTH);
+	PRECOND(sig != NULL);
+	PRECOND(sig_len == COVENANT_SIGNATURE_LEN);
+
+	nyfe_zeroize_register(sk, sizeof(sk));
+
+	if (crypto_sign_seed_keypair(pk, sk, keks->seed) != 0)
+		covenant_fatal("failed to derive the flock signing key");
+
+	len = strlen(name);
+	VERIFY(len > 0 && len <= COVENANT_NAME_MAX);
+
+	off = sizeof(COVENANT_NAME_LABEL) - 1;
+	memcpy(msg, COVENANT_NAME_LABEL, off);
+
+	flock = htobe64(keks->flock);
+	memcpy(&msg[off], &flock, sizeof(flock));
+	off += sizeof(flock);
+
+	msg[off++] = kek;
+	msg[off++] = (u_int8_t)len;
+
+	memcpy(&msg[off], name, len);
+	off += len;
+
+	if (crypto_sign_detached(sig, NULL, msg, off, sk) != 0)
+		covenant_fatal("failed to sign the device name");
+
+	nyfe_zeroize(sk, sizeof(sk));
 }
 
 /*

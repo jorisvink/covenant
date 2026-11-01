@@ -921,7 +921,6 @@ class _NetPainter extends CustomPainter {
   final double intensity;
   final bool centered;
 
-  /// @keyframes line-pulse, 0.12 except for a flash to 0.6 at 90%.
   static double _pulse(double t, double period, double delay) {
     var p = ((t - delay) % period) / period;
     if (p < 0) {
@@ -957,7 +956,6 @@ class _NetPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // The right hand side of the 1600x480 viewbox, scaled to cover.
     final scale = math.max(size.width / 900, size.height / 480);
     final ox = size.width - 1600 * scale;
     final oy = (size.height - 480 * scale) / 2;

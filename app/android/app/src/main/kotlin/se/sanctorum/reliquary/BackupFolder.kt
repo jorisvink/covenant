@@ -40,7 +40,6 @@ object BackupFolder {
             ?: DocumentsContract.createDocument(resolver, root(tree), MIME, name)
             ?: throw IllegalStateException("Could not write $name to the backup folder.")
 
-        // Not every provider knows "wt", backups are all the same size.
         val out = try {
             resolver.openOutputStream(doc, "wt")
         } catch (e: IllegalArgumentException) {

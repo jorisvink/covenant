@@ -28,6 +28,12 @@ object Core {
     fun keksRenew(vk: ByteArray, sealed: ByteArray, kek: Int): ByteArray =
         keksRenew(ctx, vk, sealed, kek) ?: fail()
 
+    const val SEALED_V1_LEN = 72 + 255 * 32 + 16
+
+    @Synchronized
+    fun keksUpgrade(vk: ByteArray, sealed: ByteArray): ByteArray =
+        keksUpgrade(ctx, vk, sealed) ?: fail()
+
     @Synchronized
     fun keksCheck(vk: ByteArray, sealed: ByteArray): Boolean =
         keksCheck(ctx, vk, sealed)
@@ -116,6 +122,9 @@ object Core {
 
     @JvmStatic
     private external fun keksRenew(ctx: Long, vk: ByteArray, sealed: ByteArray, kek: Int): ByteArray?
+
+    @JvmStatic
+    private external fun keksUpgrade(ctx: Long, vk: ByteArray, sealed: ByteArray): ByteArray?
 
     @JvmStatic
     private external fun keksCheck(ctx: Long, vk: ByteArray, sealed: ByteArray): Boolean

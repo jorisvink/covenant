@@ -65,7 +65,8 @@ are:
    K = KMAC256(ss_m || ss_x, "COVENANT.BACKUP.KDF", x)
    ```
 
-6. Encrypt the KEKs with AES-256-GCM under K, with the header as AAD.
+6. Encrypt the KEKs and the signing seed with AES-256-GCM under K,
+   with the header as AAD.
 7. MAC everything so far with KMAC256 under the MAC key, using the
    label `COVENANT.BACKUP.MAC`.
 
@@ -78,11 +79,11 @@ can make one that restores.
 
 ## The backup file
 
-A backup is 9856 bytes. All integers are big endian.
+A backup is 9888 bytes. All integers are big endian.
 
 ```
 magic "COVB"	4
-version		4
+version		4	3
 flock		8
 created		8	when the KEKs were made
 made		8	when the backup was made
@@ -91,9 +92,17 @@ reserved	4
 ct_x		32
 ct_m		1568
 KEKs		255 * 32
+seed		32	the signing seed of the flock
 tag		16
 mac		32
 ```
+
+Restoring a backup brings the signing seed back too, so the device
+names signed before keep verifying.
+
+Backups of version 2 are 9856 bytes and have no seed. They can still be
+listed and restored, the restored KEKs then get a new seed. New backups
+are always version 3.
 
 The flock and both times can be read without the recovery key. The app
 uses that to list what is in the backup folder.
@@ -178,8 +187,8 @@ directory already exists, so it never overwrites anything.
 
 ## What a backup does not cover
 
-A backup only holds the KEKs. It does not hold the session token, the
-account key, device names or bundle notes.
+A backup only holds the KEKs and the signing seed. It does not hold
+the session token, the account key, device names or bundle notes.
 
 Without a backup, losing the phone or removing its screen lock loses
 the KEKs. The flock then needs new KEKs and all of its devices need

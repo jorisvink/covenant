@@ -1,5 +1,3 @@
-// Text inputs and choices, drawn like the Pre blocks and panels.
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -68,7 +66,6 @@ class Field extends StatelessWidget {
   }
 }
 
-/// A row of options of which one is picked, like a segmented control.
 class Choice<T> extends StatelessWidget {
   const Choice({
     super.key,
@@ -125,7 +122,6 @@ class Choice<T> extends StatelessWidget {
   }
 }
 
-/// A panel with an explanation and a toggle.
 class SwitchRow extends StatelessWidget {
   const SwitchRow({
     super.key,

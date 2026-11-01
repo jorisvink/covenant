@@ -192,7 +192,6 @@ final class Vault {
         try write(try backupFile(flock, ".exported"), Data())
     }
 
-    /// The backups not written to the backup folder yet.
     func pending() -> [(String, Data)] {
         flocks().filter { backupState($0) == "pending" }.compactMap { (flock: String) -> (String, Data)? in
             guard let file = try? backupFile(flock, ".backup"),
@@ -345,7 +344,6 @@ final class Vault {
 
         let status = SecItemCopyMatching(query as CFDictionary, nil)
 
-        // Skipping the UI on a protected item still tells us it exists.
         return status == errSecSuccess || status == errSecInteractionNotAllowed
     }
 
@@ -365,7 +363,6 @@ final class Vault {
 
         let code = CFErrorGetCode(error)
 
-        // errSecUserCanceled and the LAError cancel codes.
         if code == Int(errSecUserCanceled) || code == LAError.userCancel.rawValue ||
             code == LAError.systemCancel.rawValue || code == LAError.appCancel.rawValue {
             return .cancelled

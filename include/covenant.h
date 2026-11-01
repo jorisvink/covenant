@@ -34,8 +34,16 @@ extern "C" {
 /* The number of KEKs in a flock, 0x01 - 0xff. */
 #define COVENANT_KEK_COUNT		255
 
-/* The length of a sealed set of flock KEKs. */
+/* The length of the seed for the ed25519 key that signs device names. */
+#define COVENANT_SIGN_SEED_LEN		32
+
+/* The length of the sealed KEKs and signing seed of a flock. */
 #define COVENANT_KEKS_SEALED_LEN	\
+    (72 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + \
+    COVENANT_SIGN_SEED_LEN + 16)
+
+/* The length of sealed KEKs from before the signing seed, version 1. */
+#define COVENANT_KEKS_SEALED_V1_LEN	\
     (72 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + 16)
 
 /* The length of all KEKs of a flock, kek-0x01 up to kek-0xff. */
@@ -69,8 +77,13 @@ extern "C" {
 /* The length of a backup recipient. */
 #define COVENANT_BACKUP_RECIPIENT_LEN	1704
 
-/* The length of a backup of the KEKs of a single flock. */
+/* The length of a backup of the KEKs and signing seed of a flock. */
 #define COVENANT_BACKUP_LEN		\
+    (1648 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + \
+    COVENANT_SIGN_SEED_LEN + 16 + 32)
+
+/* The length of a backup from before the signing seed, version 2. */
+#define COVENANT_BACKUP_V2_LEN		\
     (1648 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + 16 + 32)
 
 /*
@@ -114,8 +127,9 @@ struct covenant_backup_info {
  * configuration for vigil on the same device.
  *
  * The config is the vigil configuration without its keys, we add the
- * KEK, the cathedral secret (hex, as the reliquary hands it out) and
- * the cosk that was made with covenant_cosk_new().
+ * KEK, the cathedral secret (hex, as the reliquary hands it out), the
+ * cosk that was made with covenant_cosk_new(), the public key of the
+ * flock and the signature over the instance of the device.
  */
 struct covenant_device {
 	const void	*secret;
@@ -158,6 +172,8 @@ int	covenant_keks_renew(COVENANT *, const void *, size_t,
 	    const void *, size_t, u_int8_t, void *, size_t);
 void	covenant_keks_import(COVENANT *, const void *, size_t,
 	    u_int64_t, const void *, size_t, void *, size_t);
+int	covenant_keks_upgrade(COVENANT *, const void *, size_t,
+	    const void *, size_t, void *, size_t);
 
 int	covenant_ambry_bundle(COVENANT *, const void *, size_t,
 	    const void *, size_t, u_int16_t, void *, size_t,

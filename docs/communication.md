@@ -73,17 +73,46 @@ that:
 
 - it is at most 1024 bytes of printable ASCII,
 - it starts with `vigil 1`,
-- it has no `kek`, `secret`, `cathedral_secret` or `cathedral_cosk`
-  line,
+- it has no `kek`, `secret`, `cathedral_secret`, `cathedral_cosk`,
+  `name_pubkey` or `name_signature` line,
 - it has exactly one `cathedral_flock` line, and it names the flock of
   the KEKs,
-- it has exactly one `spi` line, and it starts with the KEK id.
+- it has exactly one `spi` line, and it starts with the KEK id,
+- it has exactly one `instance` line, with a name vigil accepts: 1 to
+  63 letters, digits, spaces, `.`, `-` or `_`.
 
-It then appends three lines, all in hex:
+It then appends these lines, all in hex:
 
 - `kek`, the KEK of the device,
 - `cathedral_secret`, from the reliquary,
-- `cathedral_cosk`, the secret half of the cosk.
+- `cathedral_cosk`, the secret half of the cosk,
+- `name_pubkey`, the public key the flock signs device names with,
+- `name_signature`, the signature over the name of the device.
+
+## Signed device names
+
+Every flock has an ed25519 key to sign the names of its devices with.
+Its seed is sealed together with the KEKs and is in the backups, so a
+restore keeps it. The name of a device is its `instance`, the C library
+signs:
+
+```
+m = "COVENANT.NAME" || flock || kek || len(name) || name
+```
+
+The flock is 64-bit big endian, the KEK id and the length are a single
+byte.
+
+Vigil sends its name and the signature to the devices it chats with.
+The receiver does not take the flock or the KEK id from the sender. It
+uses the flock of its own configuration and the KEK id of the tunnel
+the name arrived on, and checks the signature with its own `name_pubkey`.
+A device therefore cannot show itself under the name of another
+device, and the cathedrals never see a name.
+
+Renaming a device in vigil makes its signature stop matching, it then
+falls back to its nickname. A new name needs the device to be
+provisioned again.
 
 For a QR code the configuration is built in memory from `covenant_alloc()`
 and wiped once it is encoded. For a handover to Vigil the platform

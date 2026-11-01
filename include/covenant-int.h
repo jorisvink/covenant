@@ -111,7 +111,8 @@ struct sanctum_ambry_entry {
  * from the vault key and the salt (fresh on every seal).
  */
 #define COVENANT_KEKS_MAGIC	"COVK"
-#define COVENANT_KEKS_VERSION	1
+#define COVENANT_KEKS_VERSION	2
+#define COVENANT_KEKS_V1	1
 #define COVENANT_KEKS_KDF_LABEL	"COVENANT.VAULT.KEKS"
 
 struct covenant_keks_head {
@@ -138,7 +139,8 @@ struct covenant_keks_head {
  * The header of a backup.
  */
 #define COVENANT_BACKUP_MAGIC		"COVB"
-#define COVENANT_BACKUP_VERSION		2
+#define COVENANT_BACKUP_VERSION		3
+#define COVENANT_BACKUP_V2		2
 #define COVENANT_BACKUP_KDF_LABEL	"COVENANT.BACKUP.KDF"
 #define COVENANT_BACKUP_MAC_LABEL	"COVENANT.BACKUP.MAC"
 #define COVENANT_BACKUP_SEED_LABEL	"COVENANT.BACKUP.SEED"
@@ -187,7 +189,29 @@ struct covenant_keks {
 	u_int64_t	flock;
 	u_int64_t	created;
 	u_int8_t	kek[COVENANT_KEK_COUNT][COVENANT_KEK_LEN];
+	u_int8_t	seed[COVENANT_SIGN_SEED_LEN];
 };
+
+/* The encrypted part of sealed KEKs and of a backup, kek || seed. */
+#define COVENANT_KEKS_SECRET_LEN	\
+    (COVENANT_KEKS_DATA_LEN + COVENANT_SIGN_SEED_LEN)
+
+/*
+ * The name of a device is signed with the ed25519 key of its flock:
+ *
+ *	m = COVENANT_NAME_LABEL || flock || kek || len(name) || name
+ *
+ * The flock is 64-bit big endian, kek and len(name) are one byte each.
+ * The name is the instance of the device. It is at most COVENANT_NAME_MAX
+ * bytes long and uses only the characters vigil accepts.
+ */
+#define COVENANT_NAME_LABEL		"COVENANT.NAME"
+#define COVENANT_NAME_MAX		63
+#define COVENANT_SIGNATURE_LEN		64
+
+/* The longest m we sign, label || flock || kek || len(name) || name. */
+#define COVENANT_NAME_MSG_MAX		\
+    (sizeof(COVENANT_NAME_LABEL) - 1 + 8 + 1 + 1 + COVENANT_NAME_MAX)
 
 /*
  * Used to interface with the cipher.
@@ -274,6 +298,10 @@ void	*covenant_cipher_setup(const u_int8_t *, size_t);
 void			covenant_keks_close(struct covenant_keks *);
 void			covenant_keks_seal(const u_int8_t *, size_t,
 			    const struct covenant_keks *, u_int8_t *, size_t);
+void			covenant_keks_unpack(struct covenant_keks *,
+			    const u_int8_t *, size_t);
+void			covenant_keks_pack(const struct covenant_keks *,
+			    u_int8_t *, size_t);
 void			covenant_kek_derive(const u_int8_t *, size_t, u_int64_t,
 			    u_int64_t, u_int8_t *, size_t);
 struct covenant_keks	*covenant_keks_open(struct covenant *,

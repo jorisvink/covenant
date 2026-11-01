@@ -493,7 +493,6 @@ Future<bool> confirm({
     return false;
   }
 
-  // Or the field that had focus grabs it (and the keyboard) back after.
   FocusManager.instance.primaryFocus?.unfocus();
 
   final result = await showModalBottomSheet<bool>(
@@ -636,7 +635,6 @@ Future<String?> ask({
   return result;
 }
 
-/// Let the user pick one of a few options in a sheet.
 Future<T?> choose<T>({
   required String title,
   required List<(T, String, String?)> options,

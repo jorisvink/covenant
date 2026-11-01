@@ -17,7 +17,8 @@ import UserNotifications
 /// so every call takes the lock and reads the error of the context right
 /// after a call failed.
 enum Core {
-    static let sealedLength = 72 + 255 * 32 + 16
+    static let sealedLength = 72 + 255 * 32 + 32 + 16
+    static let sealedV1Length = 72 + 255 * 32 + 16
     static let ambryLength = 3_756_730
     static let coskLength = 32
     static let qrMax = 177 * 177
@@ -25,9 +26,9 @@ enum Core {
     static let vaultKeyLength = 32
     static let rootLength = 32
     static let recipientLength = 1704
-    static let backupLength = 1648 + 255 * 32 + 16 + 32
+    static let backupLength = 1648 + 255 * 32 + 32 + 16 + 32
+    static let backupV2Length = 1648 + 255 * 32 + 16 + 32
 
-    /// COVENANT_ERROR_PARAMETER and COVENANT_ERROR_RECOVERY_KEY from covenant.h.
     static let parameter = 2
     static let recoveryKey = 14
 
@@ -55,7 +56,6 @@ enum Core {
         }
     }
 
-    /// Run a call on the context, turning a failure into its error code.
     private static func call(_ body: (OpaquePointer?) -> Int32) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -65,7 +65,6 @@ enum Core {
         }
     }
 
-    /// Run a call on the context that cannot fail.
     private static func locked(_ body: (OpaquePointer?) -> Void) {
         lock.lock()
         defer { lock.unlock() }
@@ -74,6 +73,8 @@ enum Core {
     }
 
     static func info(_ sealed: Data) -> Info? {
+        guard sealed.count == sealedLength || sealed.count == sealedV1Length else { return nil }
+
         var info = covenant_info()
 
         do {
@@ -96,7 +97,23 @@ enum Core {
         return Data(out)
     }
 
+    static func upgrade(_ vk: [UInt8], sealed: Data) throws -> Data {
+        try sized(vk.count == vaultKeyLength, sealed.count == sealedV1Length)
+
+        var out = [UInt8](repeating: 0, count: sealedLength)
+        let input = [UInt8](sealed)
+        let count = out.count
+
+        try call {
+            covenant_keks_upgrade($0, vk, vk.count, input, input.count, &out, count)
+        }
+
+        return Data(out)
+    }
+
     static func renew(_ vk: [UInt8], sealed: Data, kek: UInt8) throws -> Data {
+        guard sealed.count == sealedLength else { throw VaultError.core(parameter) }
+
         var out = [UInt8](repeating: 0, count: sealedLength)
         let input = [UInt8](sealed)
         let count = out.count
@@ -109,6 +126,8 @@ enum Core {
     }
 
     static func bundle(_ vk: [UInt8], sealed: Data, days: UInt16) throws -> [String: Any] {
+        guard sealed.count == sealedLength else { throw VaultError.core(parameter) }
+
         var out = [UInt8](repeating: 0, count: ambryLength)
         var generation: UInt32 = 0
         var expires: UInt16 = 0
@@ -127,7 +146,6 @@ enum Core {
         ]
     }
 
-    /// A new recovery key into root, returns its recipient.
     static func backupKeygen(_ vk: [UInt8], root: inout [UInt8]) throws -> Data {
         try sized(vk.count == vaultKeyLength, root.count == rootLength)
 
@@ -151,7 +169,6 @@ enum Core {
         return Data(rcpt)
     }
 
-    /// False when the recipient is not of the given recovery key.
     static func backupVerify(root: [UInt8], recipient: Data) throws -> Bool {
         try sized(root.count == rootLength, recipient.count == recipientLength)
 
@@ -182,10 +199,9 @@ enum Core {
         return Data(out)
     }
 
-    /// Restore a backup, returns its KEKs sealed under vk.
     static func backupRestore(_ vk: [UInt8], root: [UInt8], backup: Data) throws -> Data {
         try sized(vk.count == vaultKeyLength, root.count == rootLength,
-                  backup.count == backupLength)
+                  backup.count == backupLength || backup.count == backupV2Length)
 
         var out = [UInt8](repeating: 0, count: sealedLength)
         let input = [UInt8](backup)
@@ -199,7 +215,7 @@ enum Core {
     }
 
     static func backupInfo(_ backup: Data) -> BackupInfo? {
-        guard backup.count == backupLength else { return nil }
+        guard backup.count == backupLength || backup.count == backupV2Length else { return nil }
 
         var info = covenant_backup_info()
 
@@ -214,7 +230,6 @@ enum Core {
         return BackupInfo(flock: info.flock, made: info.made, created: info.created)
     }
 
-    /// Throws unless all checks hold, the C library aborts on bad lengths.
     private static func sized(_ checks: Bool...) throws {
         if checks.contains(false) {
             throw VaultError.core(parameter)
@@ -305,7 +320,6 @@ enum Core {
     }
 }
 
-/// The backup folder, only touched inside access().
 enum BackupFolder {
     private static let suffix = ".rlqb"
     private static let cloud = ".icloud"
@@ -386,7 +400,6 @@ enum BackupFolder {
     }
 }
 
-/// The system folder picker, the plugin holds on to it while it is up.
 final class FolderPicker: NSObject, UIDocumentPickerDelegate {
     private let done: (URL?) -> Void
 
@@ -549,7 +562,6 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
-/// The API session, in the keychain for this device only.
 enum SessionStore {
     private static let service = (Bundle.main.bundleIdentifier ?? "") + ".session"
 
@@ -624,7 +636,6 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                     let sealed = try Core.generate(vk, flock: UInt64(flock, radix: 16)!)
                     let bundle = try Core.bundle(vk, sealed: sealed, days: days)
 
-                    // Only keep the KEKs once their first bundle exists.
                     try Vault.shared.store(flock, sealed)
                     self.backup(vk, flock, sealed)
                     return bundle
@@ -636,7 +647,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let sealed = try Vault.shared.sealed(flock)
 
                 withKey(result, "Replace the KEK of a removed device", create: false) { vk in
-                    let renewed = try Core.renew(vk, sealed: sealed, kek: kek)
+                    let renewed = try Core.renew(vk, sealed: self.upgraded(vk, flock, sealed), kek: kek)
                     let bundle = try Core.bundle(vk, sealed: renewed, days: days)
 
                     try Vault.shared.store(flock, renewed)
@@ -649,7 +660,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let sealed = try Vault.shared.sealed(flock)
 
                 withKey(result, "Make new encrypted secrets", create: false) { vk in
-                    try Core.bundle(vk, sealed: sealed, days: days)
+                    try Core.bundle(vk, sealed: self.upgraded(vk, flock, sealed), days: days)
                 }
             case "keksDelete":
                 try Vault.shared.remove(try flockArg(call.arguments))
@@ -711,7 +722,7 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let sealed = try Vault.shared.sealed(flock)
 
                 withKey(result, "Add a new device", create: false) { vk in
-                    try Core.provision(vk, sealed: sealed, kek: kek, handle: handle,
+                    try Core.provision(vk, sealed: self.upgraded(vk, flock, sealed), kek: kek, handle: handle,
                                        secret: secret, config: config)
                 }
             case "handoffAvailable":
@@ -725,7 +736,8 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                 let sealed = try Vault.shared.sealed(flock)
 
                 withKey(result, "Add this phone to Vigil", create: false) { vk in
-                    var full = try Core.provisionConfig(vk, sealed: sealed, kek: kek, handle: handle,
+                    var full = try Core.provisionConfig(vk, sealed: self.upgraded(vk, flock, sealed),
+                                                        kek: kek, handle: handle,
                                                         secret: secret, config: config)
                     try Handoff.send(&full)
                     return ""
@@ -761,7 +773,16 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    /// Back up the KEKs of a flock, a failure leaves it not backed up.
+    private func upgraded(_ vk: [UInt8], _ flock: String, _ sealed: Data) throws -> Data {
+        guard sealed.count == Core.sealedV1Length else { return sealed }
+
+        let upgraded = try Core.upgrade(vk, sealed: sealed)
+        try Vault.shared.store(flock, upgraded)
+        backup(vk, flock, upgraded)
+
+        return upgraded
+    }
+
     private func backup(_ vk: [UInt8], _ flock: String, _ sealed: Data) {
         guard let recipient = Vault.shared.recipient() else { return }
 
@@ -783,14 +804,13 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
         }
 
         for flock in Vault.shared.flocks() {
-            let sealed = try Vault.shared.sealed(flock)
+            let sealed = try upgraded(vk, flock, try Vault.shared.sealed(flock))
             try Vault.shared.storeBackup(flock, try Core.backupSeal(vk, recipient: recipient, sealed: sealed))
         }
 
         exportQuietly()
     }
 
-    /// Write the pending backups to the backup folder, returns how many.
     private func export() throws -> Int {
         guard let folder = Vault.shared.folder() else { return 0 }
 
@@ -905,7 +925,6 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
 
         if let recipient = Vault.shared.recipient() {
             if try !Core.backupVerify(root: root, recipient: recipient) {
-                // Back the restored flocks up to our own recipient.
                 for flock in restored {
                     let sealed = try Vault.shared.sealed(flock)
                     try Vault.shared.storeBackup(flock, try Core.backupSeal(vk, recipient: recipient, sealed: sealed))
@@ -919,7 +938,6 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
         return ["restored": restored, "skipped": skipped, "failed": failed]
     }
 
-    /// Unlock the vault off the main thread, do the work and wipe the key.
     private func withKey(_ result: @escaping FlutterResult, _ reason: String, create: Bool,
                          _ body: @escaping ([UInt8]) throws -> Any?) {
         background(result) {

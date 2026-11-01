@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 
-/// Taken from :root in sanctum.css.
 abstract final class Palette {
   static const bg = Color(0xff0b0c0e);
   static const bg2 = Color(0xff111317);
@@ -34,7 +33,6 @@ abstract final class Metrics {
   static const double tabBar = 62;
 }
 
-/// JetBrains Mono only ships regular and bold.
 const FontWeight _mono500 = FontWeight.w400;
 const FontWeight _mono600 = FontWeight.w700;
 

@@ -87,7 +87,6 @@ class MainActivity : FlutterActivity() {
                         val sealed = Core.keksGenerate(vk, flockId(flock))
                         val bundle = bundle(vk, sealed, days)
 
-                        // Only keep the KEKs once their first bundle exists.
                         vault.store(flock, sealed)
                         backup(vk, flock, sealed)
                         bundle
@@ -102,7 +101,7 @@ class MainActivity : FlutterActivity() {
                     require(kek in 1..255) { "KEK IDs are 01 to ff." }
 
                     withKey(result, "Replace the KEK of a removed device", create = false) { vk ->
-                        val renewed = Core.keksRenew(vk, sealed, kek)
+                        val renewed = Core.keksRenew(vk, upgraded(vk, flock, sealed), kek)
                         val bundle = bundle(vk, renewed, days)
 
                         vault.store(flock, renewed)
@@ -116,7 +115,7 @@ class MainActivity : FlutterActivity() {
                     val sealed = vault.sealed(flock)
 
                     withKey(result, "Make new encrypted secrets", create = false) { vk ->
-                        bundle(vk, sealed, days)
+                        bundle(vk, upgraded(vk, flock, sealed), days)
                     }
                 }
                 "keksDelete" -> {
@@ -200,7 +199,7 @@ class MainActivity : FlutterActivity() {
                     val sealed = vault.sealed(flock)
 
                     withKey(result, "Add a new device", create = false) { vk ->
-                        val modules = Core.provision(vk, sealed, kek, handle, secret, config)
+                        val modules = Core.provision(vk, upgraded(vk, flock, sealed), kek, handle, secret, config)
                         var side = 0
                         while (side * side < modules.size) side++
 
@@ -217,7 +216,7 @@ class MainActivity : FlutterActivity() {
                     val sealed = vault.sealed(flock)
 
                     withKey(result, "Add this phone to Vigil", create = false) { vk ->
-                        Handoff.send(this, Core.provisionConfig(vk, sealed, kek, handle, secret, config))
+                        Handoff.send(this, Core.provisionConfig(vk, upgraded(vk, flock, sealed), kek, handle, secret, config))
                         ""
                     }
                 }
@@ -284,6 +283,16 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun upgraded(vk: ByteArray, flock: String, sealed: ByteArray): ByteArray {
+        if (sealed.size != Core.SEALED_V1_LEN) return sealed
+
+        val upgraded = Core.keksUpgrade(vk, sealed)
+        vault.store(flock, upgraded)
+        backup(vk, flock, upgraded)
+
+        return upgraded
+    }
+
     /** Back up the KEKs of a flock, a failure leaves it not backed up. */
     private fun backup(vk: ByteArray, flock: String, sealed: ByteArray) {
         val recipient = vault.recipient() ?: return
@@ -304,7 +313,7 @@ class MainActivity : FlutterActivity() {
         val recipient = vault.recipient() ?: throw IllegalStateException("Make a recovery key first.")
 
         for (flock in vault.flocks()) {
-            vault.storeBackup(flock, Core.backupSeal(vk, recipient, vault.sealed(flock)))
+            vault.storeBackup(flock, Core.backupSeal(vk, recipient, upgraded(vk, flock, vault.sealed(flock))))
         }
 
         exportQuietly()
@@ -384,7 +393,6 @@ class MainActivity : FlutterActivity() {
         if (recipient == null) {
             if (restored.isNotEmpty()) vault.storeRecipient(Core.backupRecipient(vk, root))
         } else if (!Core.backupVerify(root, recipient)) {
-            // Back the restored flocks up to our own recipient.
             for (flock in restored) {
                 vault.storeBackup(flock, Core.backupSeal(vk, recipient, vault.sealed(flock)))
             }

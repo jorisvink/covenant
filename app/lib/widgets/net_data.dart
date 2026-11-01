@@ -1,6 +1,3 @@
-// Generated from the .net svg in sanctum/www/index.html, do not edit.
-
-/// x1, y1, x2, y2, pulse duration (s), pulse delay (s) in a 1600x480 viewbox.
 const List<List<double>> netLines = [
   [198.0, 241.0, 254.0, 154.0, 7.0, -2.3],
   [198.0, 241.0, 91.0, 169.0, 9.6, -3.0],
@@ -111,7 +108,6 @@ const List<List<double>> netLines = [
   [44.0, 423.0, 128.0, 467.0, 6.0, -1.8],
 ];
 
-/// x, y of the 3x3 nodes in the same viewbox.
 const List<List<double>> netNodes = [
   [197.0, 240.0],
   [817.0, 404.0],

@@ -41,7 +41,6 @@ class _AccountPageState extends State<AccountPage> {
     final url = _api.text.trim();
     final uri = Uri.tryParse(url);
 
-    // Plain http only for a reliquary running on this very machine.
     final local = uri?.scheme == 'http' && uri?.host == '127.0.0.1';
 
     if (uri == null || (uri.scheme != 'https' && !local) || uri.host.isEmpty) {
@@ -267,7 +266,6 @@ String timeLeft(Duration d) {
   return '${d.inHours}h ${d.inMinutes % 60}m';
 }
 
-/// Shows the account key once, right after registering.
 class AccountKeyPage extends StatefulWidget {
   const AccountKeyPage({super.key, required this.accountKey});
 

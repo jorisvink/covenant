@@ -56,8 +56,11 @@ static int	test_ambry_unwrap(const u_int8_t *, size_t,
 static void	test_keks_seal(const u_int8_t *, const u_int8_t *);
 static void	test_keks_renew(const u_int8_t *, const u_int8_t *);
 static void	test_config_build(const u_int8_t *, const u_int8_t *);
+static void	test_config_name(const struct covenant_keks *, const char *,
+		    u_int8_t, const char *);
 static void	test_provision_qr(const u_int8_t *, const u_int8_t *);
 static void	test_backup_restore(const u_int8_t *, const u_int8_t *);
+static void	test_upgrade(void);
 static void	test_provision_config(const u_int8_t *, const u_int8_t *);
 static void	test_ambry_bundle(const u_int8_t *, const u_int8_t *,
 		    const u_int8_t *);
@@ -81,6 +84,8 @@ main(void)
 	CHECK(covenant_last_error(NULL) == COVENANT_ERROR_NO_CONTEXT);
 	CHECK(covenant_random_bytes(ctx, secret, sizeof(secret)) == 0);
 	CHECK(covenant_random_bytes(NULL, secret, sizeof(secret)) == -1);
+
+	test_upgrade();
 
 	have = test_ambry_find(getenv("AMBRY"));
 
@@ -242,9 +247,11 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 {
 	int			len;
 	struct covenant_keks	*keks;
+	char			sk_hex[129];
 	u_int8_t		cs[32], sk[64];
-	char			kek[65], cs_hex[65], sk_hex[129];
+	u_int8_t		pk[32], seed_sk[64];
 	char			out[2048], want[2048];
+	char			kek[65], cs_hex[65], pk_hex[65];
 	const char		*public =
 	    "vigil 1\n"
 	    "instance laptop\n"
@@ -268,10 +275,53 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 
 	(void)sodium_bin2hex(kek, sizeof(kek),
 	    keks->kek[0x0c - 1], COVENANT_KEK_LEN);
+
+	CHECK(crypto_sign_seed_keypair(pk, seed_sk, keks->seed) == 0);
+	(void)sodium_bin2hex(pk_hex, sizeof(pk_hex), pk, sizeof(pk));
+	nyfe_mem_zero(seed_sk, sizeof(seed_sk));
+
 	len = snprintf(want, sizeof(want), "%skek %s\ncathedral_secret %s\n"
-	    "cathedral_cosk %s\n", public, kek, cs_hex, sk_hex);
+	    "cathedral_cosk %s\nname_pubkey %s\nname_signature ",
+	    public, kek, cs_hex, sk_hex, pk_hex);
 	CHECK(len >= 0 && (size_t)len < sizeof(want));
-	CHECK(strcmp(out, want) == 0);
+	CHECK(strncmp(out, want, len) == 0);
+	CHECK(strlen(out) == (size_t)len + (COVENANT_SIGNATURE_LEN * 2) + 1);
+
+	test_config_name(keks, out, 0x0c, "laptop");
+
+	/* Every device needs a name to sign. */
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+
+	/* The flock key or a signature smuggled in. */
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\nname_pubkey 00\n",
+	    out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_KEYS);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\nname_signature 00\n",
+	    out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_KEYS);
+
+	/* An instance vigil would refuse, or two of them. */
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance bad/name\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance a\ninstance b\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance "
+	    "0123456789012345678901234567890123456789012345678901234567890123"
+	    "\nspi 0c\ncathedral_flock 493abf95a07e0c00\n",
+	    out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
 
 	/* Wrong KEK for the spi. */
 	CHECK(covenant_config_build(ctx, keks, 0x0d, cs, sizeof(cs),
@@ -280,18 +330,18 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 
 	/* Another flock. */
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
-	    sk, sizeof(sk), "vigil 1\nspi 0c\n"
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0d00\n", out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
 
 	/* Keys smuggled in. */
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
-	    sk, sizeof(sk), "vigil 1\nspi 0c\n"
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0c00\nkek 00\n",
 	    out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_KEYS);
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
-	    sk, sizeof(sk), "vigil 1\nspi 0c\n"
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0c00\ncathedral_cosk 00\n",
 	    out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_KEYS);
@@ -302,7 +352,7 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 	    out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
-	    sk, sizeof(sk), "vigil 1\nspi 0c\n"
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0c00\t\n", out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG);
 
@@ -313,12 +363,60 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 
 	/* Liturgy style, spi is just our KEK and no trailing newline. */
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
-	    sk, sizeof(sk), "vigil 1\nmode liturgy\nspi 0c\n"
+	    sk, sizeof(sk), "vigil 1\ninstance mesh\nmode liturgy\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0c00", out, sizeof(out)) == 0);
 	CHECK(strstr(out, "493abf95a07e0c00\nkek ") != NULL);
 
 	covenant_keks_close(keks);
 	covenant_unlock();
+}
+
+/*
+ * Check the name_signature in config the way vigil does, rebuilding
+ * what was signed from the flock, the KEK id and the name.
+ */
+static void
+test_config_name(const struct covenant_keks *keks, const char *config,
+    u_int8_t kek, const char *name)
+{
+	u_int64_t	flock;
+	size_t		len, off;
+	const char	*sig_hex, *pk_hex;
+	u_int8_t	pk[32], sig[64], msg[128];
+
+	CHECK((pk_hex = strstr(config, "\nname_pubkey ")) != NULL);
+	CHECK((sig_hex = strstr(config, "\nname_signature ")) != NULL);
+
+	pk_hex += strlen("\nname_pubkey ");
+	sig_hex += strlen("\nname_signature ");
+
+	CHECK(sodium_hex2bin(pk, sizeof(pk), pk_hex, sizeof(pk) * 2,
+	    NULL, &len, NULL) == 0 && len == sizeof(pk));
+	CHECK(sodium_hex2bin(sig, sizeof(sig), sig_hex, sizeof(sig) * 2,
+	    NULL, &len, NULL) == 0 && len == sizeof(sig));
+
+	off = strlen(COVENANT_NAME_LABEL);
+	memcpy(msg, COVENANT_NAME_LABEL, off);
+
+	flock = htobe64(keks->flock);
+	memcpy(&msg[off], &flock, sizeof(flock));
+	off += sizeof(flock);
+
+	len = strlen(name);
+	msg[off++] = kek;
+	msg[off++] = (u_int8_t)len;
+	memcpy(&msg[off], name, len);
+	off += len;
+
+	CHECK(crypto_sign_verify_detached(sig, msg, off, pk) == 0);
+
+	/* Another KEK id or another name must not verify. */
+	msg[strlen(COVENANT_NAME_LABEL) + sizeof(flock)] = kek + 1;
+	CHECK(crypto_sign_verify_detached(sig, msg, off, pk) != 0);
+	msg[strlen(COVENANT_NAME_LABEL) + sizeof(flock)] = kek;
+
+	msg[off - 1] ^= 0x01;
+	CHECK(crypto_sign_verify_detached(sig, msg, off, pk) != 0);
 }
 
 /*
@@ -480,6 +578,7 @@ test_keks_renew(const u_int8_t *secret, const u_int8_t *sealed)
 
 	CHECK(a->flock == b->flock);
 	CHECK(a->created == b->created);
+	CHECK(memcmp(a->seed, b->seed, sizeof(a->seed)) == 0);
 
 	for (idx = 1; idx <= COVENANT_KEK_COUNT; idx++) {
 		if (idx == 0x42) {
@@ -580,6 +679,7 @@ test_backup_restore(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(a->flock == b->flock);
 	CHECK(a->created == b->created);
 	CHECK(memcmp(a->kek, b->kek, sizeof(a->kek)) == 0);
+	CHECK(memcmp(a->seed, b->seed, sizeof(a->seed)) == 0);
 
 	covenant_keks_close(b);
 	covenant_unlock();
@@ -835,6 +935,84 @@ test_ambry_reference(const char *dir, u_int8_t *data, size_t data_len)
 		    derived, sizeof(derived));
 		CHECK(memcmp(internal, derived, sizeof(derived)) == 0);
 	}
+}
+
+/*
+ * Sealed KEKs of version 1 and a backup of version 2, both made by the
+ * code from before the signing seed, must still be listed, upgraded and
+ * restored with all of their KEKs. The files are in tests/data, sealed
+ * under the vault key in tests/data/vk.
+ */
+static void
+test_upgrade(void)
+{
+	struct covenant_info		ki;
+	struct covenant_backup_info	bi;
+	struct covenant_keks		*a, *b;
+	u_int8_t			*v1, *v2, *ref, *up, *res;
+	u_int8_t			vk[COVENANT_VAULT_KEY_LEN];
+	u_int8_t			zero[COVENANT_SIGN_SEED_LEN];
+	u_int8_t			root[COVENANT_BACKUP_ROOT_LEN];
+
+	CHECK((v1 = malloc(COVENANT_KEKS_SEALED_V1_LEN)) != NULL);
+	CHECK((v2 = malloc(COVENANT_BACKUP_V2_LEN)) != NULL);
+	CHECK((ref = malloc(COVENANT_KEKS_DATA_LEN)) != NULL);
+	CHECK((up = malloc(COVENANT_KEKS_SEALED_LEN)) != NULL);
+	CHECK((res = malloc(COVENANT_KEKS_SEALED_LEN)) != NULL);
+
+	test_file_read("tests/data/vk", vk, sizeof(vk));
+	test_file_read("tests/data/root", root, sizeof(root));
+	test_file_read("tests/data/sealed.v1", v1, COVENANT_KEKS_SEALED_V1_LEN);
+	test_file_read("tests/data/backup.v2", v2, COVENANT_BACKUP_V2_LEN);
+	test_file_read("tests/data/keks.ref", ref, COVENANT_KEKS_DATA_LEN);
+
+	memset(zero, 0, sizeof(zero));
+
+	CHECK(covenant_keks_info(ctx, v1, COVENANT_KEKS_SEALED_V1_LEN,
+	    &ki) == 0);
+	CHECK(ki.flock == TEST_FLOCK);
+	CHECK(covenant_keks_info(ctx, v1, COVENANT_KEKS_SEALED_V1_LEN - 1,
+	    &ki) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+
+	vk[0] ^= 0x01;
+	CHECK(covenant_keks_upgrade(ctx, vk, sizeof(vk), v1,
+	    COVENANT_KEKS_SEALED_V1_LEN, up, COVENANT_KEKS_SEALED_LEN) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+	vk[0] ^= 0x01;
+
+	CHECK(covenant_keks_upgrade(ctx, vk, sizeof(vk), v1,
+	    COVENANT_KEKS_SEALED_V1_LEN, up, COVENANT_KEKS_SEALED_LEN) == 0);
+
+	CHECK(covenant_backup_info(ctx, v2, COVENANT_BACKUP_V2_LEN, &bi) == 0);
+	CHECK(bi.flock == TEST_FLOCK);
+	CHECK(covenant_backup_restore(ctx, vk, sizeof(vk), root, sizeof(root),
+	    v2, COVENANT_BACKUP_V2_LEN, res, COVENANT_KEKS_SEALED_LEN) == 0);
+
+	covenant_lock();
+	CHECK((a = covenant_keks_open(ctx, vk, sizeof(vk),
+	    up, COVENANT_KEKS_SEALED_LEN)) != NULL);
+	CHECK((b = covenant_keks_open(ctx, vk, sizeof(vk),
+	    res, COVENANT_KEKS_SEALED_LEN)) != NULL);
+
+	CHECK(a->flock == ki.flock);
+	CHECK(a->created == ki.created);
+	CHECK(memcmp(a->kek, ref, COVENANT_KEKS_DATA_LEN) == 0);
+	CHECK(memcmp(b->kek, ref, COVENANT_KEKS_DATA_LEN) == 0);
+	CHECK(memcmp(a->seed, zero, sizeof(zero)) != 0);
+	CHECK(memcmp(b->seed, zero, sizeof(zero)) != 0);
+
+	covenant_keks_close(a);
+	covenant_keks_close(b);
+	covenant_unlock();
+
+	nyfe_mem_zero(ref, COVENANT_KEKS_DATA_LEN);
+
+	free(v1);
+	free(v2);
+	free(ref);
+	free(up);
+	free(res);
 }
 
 /*

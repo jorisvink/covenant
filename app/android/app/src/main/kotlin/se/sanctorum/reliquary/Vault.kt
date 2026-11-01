@@ -203,7 +203,6 @@ class Vault(context: Context) {
             activity.mainExecutor,
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    // The Cipher the user just authorised, good for one doFinal().
                     val unlocked = result.cryptoObject?.cipher ?: cipher
 
                     try {

@@ -45,7 +45,6 @@ class _QrPainter extends CustomPainter {
           continue;
         }
 
-        // Overlap by a hair so there are no seams between modules.
         canvas.drawRect(
           Rect.fromLTWH(
             (x + _quiet) * cell,

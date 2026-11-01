@@ -1,5 +1,3 @@
-// Backups of the KEKs to a recovery key.
-
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -16,7 +14,6 @@ import '../widgets/ui.dart';
 
 Reliquary get _r => Reliquary.instance;
 
-/// The backup part of the Keys tab.
 List<Widget> backupSection(Vault vault) {
   final backup = vault.backup;
   if (backup == null) {
@@ -199,7 +196,6 @@ String _groups(String hex) {
   ].join('\n');
 }
 
-/// Shows a new recovery key, the only time it is shown.
 class RecoveryKeyPage extends StatefulWidget {
   const RecoveryKeyPage({super.key, required this.root});
 
@@ -274,7 +270,6 @@ class _RecoveryKeyPageState extends State<RecoveryKeyPage> {
   }
 }
 
-/// Check a recovery key against the recipient of this phone.
 class RecoveryCheckPage extends StatefulWidget {
   const RecoveryCheckPage({super.key});
 
@@ -340,7 +335,6 @@ class _RecoveryCheckPageState extends State<RecoveryCheckPage> {
   }
 }
 
-/// Restore flocks from the backup folder.
 class RestorePage extends StatefulWidget {
   const RestorePage({super.key});
 

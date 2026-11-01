@@ -8,7 +8,6 @@ import 'package:flutter/foundation.dart';
 import 'api.dart';
 import 'core.dart';
 
-/// The last ambry bundle we made for a flock.
 class AmbryNote {
   AmbryNote(this.json);
 
@@ -171,7 +170,6 @@ class Reliquary extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Fetch the flocks and all of their devices.
   Future<void> refresh() async {
     if (session == null) {
       return;
@@ -275,7 +273,6 @@ class Reliquary extends ChangeNotifier {
     await refresh();
   }
 
-  /// Forget the session, the vault stays as it is.
   Future<void> logout() async {
     await core.sessionClear();
 
@@ -288,7 +285,6 @@ class Reliquary extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// A new flock has no devices, no need to fetch anything for it.
   Future<String> createFlock() async {
     final id = await api.flockCreate();
 
@@ -299,7 +295,6 @@ class Reliquary extends ChangeNotifier {
     return id;
   }
 
-  /// Delete the flock at the reliquary and its KEKs on this phone.
   Future<void> deleteFlock(String id) async {
     _manage(id);
     await api.flockDelete(id);
@@ -335,7 +330,6 @@ class Reliquary extends ChangeNotifier {
     await refreshFlock(flock);
   }
 
-  /// New KEKs for the flock, bundled and uploaded right away.
   Future<AmbryNote> generate(String flock, int days) =>
       _work(flock, 'Making the KEKs', () async {
         final bundle = await core.generate(flock, days);
