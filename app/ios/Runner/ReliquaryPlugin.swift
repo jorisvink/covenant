@@ -91,7 +91,7 @@ enum Core {
         var out = [UInt8](repeating: 0, count: sealedLength)
         let count = out.count
 
-        try call { covenant_keks_generate($0, vk, vk.count, flock, &out, count) }
+        locked { covenant_keks_generate($0, vk, vk.count, flock, &out, count) }
 
         return Data(out)
     }
