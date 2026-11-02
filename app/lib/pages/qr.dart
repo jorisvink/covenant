@@ -71,6 +71,11 @@ class _QrPageState extends State<QrPage> {
             'up everything the device needs.',
             style: Styles.body,
           ),
+          const Notice(
+            text:
+                'It can take up to a minute before Reliquary accepts the new '
+                'device, until then it cannot connect.',
+          ),
           Panel(
             accent: true,
             padding: const EdgeInsets.all(14),

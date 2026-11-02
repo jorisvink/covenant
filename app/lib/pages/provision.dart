@@ -131,8 +131,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
   String get _intro {
     final ask = switch ((_keep != null, _locked != null)) {
       (false, false) => 'Give the device a name and choose how it connects.',
-      (false, true) =>
-        'Give the device a name, it keeps the its type.',
+      (false, true) => 'Give the device a name, it keeps the its type.',
       (true, false) => 'The device keeps its name, choose how it connects.',
       (true, true) => 'The new device keeps the name and its type.',
     };
@@ -429,7 +428,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
           mode: _mode.name,
         );
 
-        notify('Sent to Vigil, check it there and import it.', warn: false);
+        notify(
+          'Sent to Vigil, check it there and import it. It can take up to '
+          'a minute before Reliquary accepts the new device.',
+          warn: false,
+        );
         navigatorKey.currentState?.pop();
         return;
       }
