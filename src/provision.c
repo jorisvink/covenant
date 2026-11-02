@@ -32,10 +32,15 @@
 #define CONFIG_HEX_MAX		((SANCTUM_ED25519_SIGN_SECRET_LENGTH * 2) + 1)
 
 static int	provision_name_valid(const char *);
-static int	provision_hex_decode(const char *, u_int8_t *, size_t);
 static void	provision_hex_encode(const u_int8_t *, size_t, char *, size_t);
+static int	provision_config_done(struct covenant *,
+		    const struct covenant_buf *, char *, size_t);
 static int	provision_device_check(struct covenant *,
 		    const struct covenant_device *);
+static void	provision_config_kek(struct covenant_buf *,
+		    const struct covenant_keks *, u_int8_t, const char *);
+static void	provision_config_name(struct covenant_buf *,
+		    const struct covenant_keks *, u_int8_t, const char *);
 static int	provision_config_check(struct covenant *, const char *,
 		    u_int64_t, u_int8_t, char *, size_t);
 static void	provision_name_sign(const struct covenant_keks *, u_int8_t,
@@ -43,9 +48,6 @@ static void	provision_name_sign(const struct covenant_keks *, u_int8_t,
 static int	provision_device_config(struct covenant *,
 		    const struct covenant_device *, char *, size_t,
 		    struct covenant_cosk **);
-
-static struct covenant_cosk	*provision_cosk_lookup(struct covenant *,
-				    u_int32_t);
 
 /* The options that carry keys or signatures, only we get to add those. */
 static const char *config_keys[] = {
@@ -135,7 +137,7 @@ covenant_cosk_drop(struct covenant *ctx, u_int32_t handle)
 
 	covenant_lock();
 
-	if ((cosk = provision_cosk_lookup(ctx, handle)) == NULL) {
+	if ((cosk = covenant_cosk_lookup(ctx, handle)) == NULL) {
 		ctx->last_error = COVENANT_ERROR_NO_COSK;
 		covenant_unlock();
 		return (-1);
@@ -262,8 +264,6 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 	struct covenant_buf	buf;
 	char			hex[CONFIG_HEX_MAX];
 	char			name[COVENANT_NAME_MAX + 1];
-	u_int8_t		sig[COVENANT_SIGNATURE_LEN];
-	u_int8_t		pk[SANCTUM_ED25519_SIGN_PUBLIC_LENGTH];
 
 	PRECOND(ctx != NULL);
 	PRECOND(keks != NULL);
@@ -283,14 +283,7 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 	nyfe_zeroize_register(hex, sizeof(hex));
 
 	covenant_buf_init(&buf, out, out_len);
-	covenant_buf_appendf(&buf, "%s", public);
-
-	if (public[strlen(public) - 1] != '\n')
-		covenant_buf_appendf(&buf, "\n");
-
-	provision_hex_encode(keks->kek[kek - 1],
-	    sizeof(keks->kek[kek - 1]), hex, sizeof(hex));
-	covenant_buf_appendf(&buf, "kek %s\n", hex);
+	provision_config_kek(&buf, keks, kek, public);
 
 	provision_hex_encode(cs, cs_len, hex, sizeof(hex));
 	covenant_buf_appendf(&buf, "cathedral_secret %s\n", hex);
@@ -298,19 +291,85 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 	provision_hex_encode(sk, sk_len, hex, sizeof(hex));
 	covenant_buf_appendf(&buf, "cathedral_cosk %s\n", hex);
 
-	provision_name_sign(keks, kek, name, pk, sizeof(pk), sig, sizeof(sig));
-
-	provision_hex_encode(pk, sizeof(pk), hex, sizeof(hex));
-	covenant_buf_appendf(&buf, "name_pubkey %s\n", hex);
-
-	provision_hex_encode(sig, sizeof(sig), hex, sizeof(hex));
-	covenant_buf_appendf(&buf, "name_signature %s\n", hex);
-
 	nyfe_zeroize(hex, sizeof(hex));
 
-	if (buf.flags & COVENANT_BUF_FULL) {
-		nyfe_mem_zero(out, out_len);
-		ctx->last_error = COVENANT_ERROR_CONFIG;
+	provision_config_name(&buf, keks, kek, name);
+
+	return (provision_config_done(ctx, &buf, out, out_len));
+}
+
+/*
+ * Put the public part, the KEK and the signed name together into out
+ * for a remote device, it adds its own cathedral secret and cosk. The
+ * caller holds the lock and out should come from covenant_alloc().
+ */
+int
+covenant_config_remote(struct covenant *ctx, const struct covenant_keks *keks,
+    u_int8_t kek, const char *public, char *out, size_t out_len)
+{
+	struct covenant_buf	buf;
+	char			name[COVENANT_NAME_MAX + 1];
+
+	PRECOND(ctx != NULL);
+	PRECOND(keks != NULL);
+	PRECOND(kek != 0);
+	PRECOND(public != NULL);
+	PRECOND(out != NULL);
+	PRECOND(out_len > 0);
+
+	if (provision_config_check(ctx, public, keks->flock, kek,
+	    name, sizeof(name)) == -1)
+		return (-1);
+
+	covenant_buf_init(&buf, out, out_len);
+
+	provision_config_kek(&buf, keks, kek, public);
+	provision_config_name(&buf, keks, kek, name);
+
+	return (provision_config_done(ctx, &buf, out, out_len));
+}
+
+/*
+ * Find the pending cosk pair for the given handle, the caller holds
+ * the lock.
+ */
+struct covenant_cosk *
+covenant_cosk_lookup(struct covenant *ctx, u_int32_t handle)
+{
+	int		idx;
+
+	PRECOND(ctx != NULL);
+
+	if (handle == 0)
+		return (NULL);
+
+	for (idx = 0; idx < COVENANT_COSK_MAX; idx++) {
+		if (ctx->cosk[idx].handle == handle)
+			return (&ctx->cosk[idx]);
+	}
+
+	return (NULL);
+}
+
+/*
+ * Decode exactly len bytes worth of hex from the given string.
+ */
+int
+covenant_hex_decode(const char *hex, u_int8_t *out, size_t len)
+{
+	size_t		got;
+	const char	*end;
+
+	PRECOND(hex != NULL);
+	PRECOND(out != NULL);
+	PRECOND(len > 0);
+
+	if (strlen(hex) != len * 2)
+		return (-1);
+
+	if (sodium_hex2bin(out, len, hex, len * 2, NULL, &got, &end) != 0 ||
+	    got != len || end != hex + (len * 2)) {
+		nyfe_mem_zero(out, len);
 		return (-1);
 	}
 
@@ -357,13 +416,13 @@ provision_device_config(struct covenant *ctx, const struct covenant_device *dev,
 
 	nyfe_zeroize_register(cs, sizeof(cs));
 
-	if (provision_hex_decode(dev->cathedral_secret, cs, sizeof(cs)) == -1) {
+	if (covenant_hex_decode(dev->cathedral_secret, cs, sizeof(cs)) == -1) {
 		nyfe_zeroize(cs, sizeof(cs));
 		ctx->last_error = COVENANT_ERROR_PARAMETER;
 		return (-1);
 	}
 
-	if ((*cosk = provision_cosk_lookup(ctx, dev->cosk)) == NULL) {
+	if ((*cosk = covenant_cosk_lookup(ctx, dev->cosk)) == NULL) {
 		nyfe_zeroize(cs, sizeof(cs));
 		ctx->last_error = COVENANT_ERROR_NO_COSK;
 		return (-1);
@@ -506,6 +565,82 @@ provision_config_check(struct covenant *ctx, const char *public,
 }
 
 /*
+ * Append the public part and the KEK of the device to buf.
+ */
+static void
+provision_config_kek(struct covenant_buf *buf, const struct covenant_keks *keks,
+    u_int8_t kek, const char *public)
+{
+	char		hex[CONFIG_HEX_MAX];
+
+	PRECOND(buf != NULL);
+	PRECOND(keks != NULL);
+	PRECOND(kek != 0);
+	PRECOND(public != NULL);
+
+	nyfe_zeroize_register(hex, sizeof(hex));
+
+	covenant_buf_appendf(buf, "%s", public);
+
+	if (public[strlen(public) - 1] != '\n')
+		covenant_buf_appendf(buf, "\n");
+
+	provision_hex_encode(keks->kek[kek - 1],
+	    sizeof(keks->kek[kek - 1]), hex, sizeof(hex));
+	covenant_buf_appendf(buf, "kek %s\n", hex);
+
+	nyfe_zeroize(hex, sizeof(hex));
+}
+
+/*
+ * Append the public key of the flock and the signature over the name
+ * of the device to buf.
+ */
+static void
+provision_config_name(struct covenant_buf *buf,
+    const struct covenant_keks *keks, u_int8_t kek, const char *name)
+{
+	char		hex[CONFIG_HEX_MAX];
+	u_int8_t	sig[COVENANT_SIGNATURE_LEN];
+	u_int8_t	pk[SANCTUM_ED25519_SIGN_PUBLIC_LENGTH];
+
+	PRECOND(buf != NULL);
+	PRECOND(keks != NULL);
+	PRECOND(kek != 0);
+	PRECOND(name != NULL);
+
+	provision_name_sign(keks, kek, name, pk, sizeof(pk), sig, sizeof(sig));
+
+	provision_hex_encode(pk, sizeof(pk), hex, sizeof(hex));
+	covenant_buf_appendf(buf, "name_pubkey %s\n", hex);
+
+	provision_hex_encode(sig, sizeof(sig), hex, sizeof(hex));
+	covenant_buf_appendf(buf, "name_signature %s\n", hex);
+}
+
+/*
+ * Check that the configuration fit into out, if it did not we wipe
+ * what made it in.
+ */
+static int
+provision_config_done(struct covenant *ctx, const struct covenant_buf *buf,
+    char *out, size_t out_len)
+{
+	PRECOND(ctx != NULL);
+	PRECOND(buf != NULL);
+	PRECOND(out != NULL);
+	PRECOND(out_len > 0);
+
+	if (buf->flags & COVENANT_BUF_FULL) {
+		nyfe_mem_zero(out, out_len);
+		ctx->last_error = COVENANT_ERROR_CONFIG;
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
  * Check that name is an instance name vigil accepts, using the same
  * rules as its config_parse_instance().
  */
@@ -580,28 +715,6 @@ provision_name_sign(const struct covenant_keks *keks, u_int8_t kek,
 }
 
 /*
- * Find the pending cosk pair for the given handle, the caller holds
- * the lock.
- */
-static struct covenant_cosk *
-provision_cosk_lookup(struct covenant *ctx, u_int32_t handle)
-{
-	int		idx;
-
-	PRECOND(ctx != NULL);
-
-	if (handle == 0)
-		return (NULL);
-
-	for (idx = 0; idx < COVENANT_COSK_MAX; idx++) {
-		if (ctx->cosk[idx].handle == handle)
-			return (&ctx->cosk[idx]);
-	}
-
-	return (NULL);
-}
-
-/*
  * Encode len bytes as lowercase hex into out, which must have room
  * for the terminating NUL as well.
  */
@@ -614,29 +727,4 @@ provision_hex_encode(const u_int8_t *in, size_t len, char *out, size_t out_len)
 	PRECOND(out_len >= (len * 2) + 1);
 
 	(void)sodium_bin2hex(out, out_len, in, len);
-}
-
-/*
- * Decode exactly len bytes worth of hex from the given string.
- */
-static int
-provision_hex_decode(const char *hex, u_int8_t *out, size_t len)
-{
-	size_t		got;
-	const char	*end;
-
-	PRECOND(hex != NULL);
-	PRECOND(out != NULL);
-	PRECOND(len > 0);
-
-	if (strlen(hex) != len * 2)
-		return (-1);
-
-	if (sodium_hex2bin(out, len, hex, len * 2, NULL, &got, &end) != 0 ||
-	    got != len || end != hex + (len * 2)) {
-		nyfe_mem_zero(out, len);
-		return (-1);
-	}
-
-	return (0);
 }

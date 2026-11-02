@@ -59,6 +59,12 @@ for abi in arm64-v8a x86_64; do
 
 	./dist-build/mbedcrypto.sh android-$abi \
 	    $TOOLCHAIN/$cc $TOOLCHAIN/llvm-ar
+
+	env AR=$TOOLCHAIN/llvm-ar CFLAGS="-I$BUILD/mbedtls/include" \
+	    ./dist-build/libkyrka.sh android-$abi \
+	    OSNAME=linux CROSS_BUILD=1 CC=$TOOLCHAIN/$cc \
+	    CIPHER=mbedtls-aes-gcm MBEDTLS=1 \
+	    LIBSODIUM_PATH=$BUILD/libsodium
 done
 
 make version

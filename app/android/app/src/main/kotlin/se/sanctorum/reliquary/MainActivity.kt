@@ -220,6 +220,41 @@ class MainActivity : FlutterActivity() {
                         ""
                     }
                 }
+                "remoteWords" -> {
+                    val flock = flock(call.argument<String>("flock"))
+                    val words = Core.remoteWords(
+                        flockId(flock),
+                        call.argument<Number>("identity")?.toLong()?.toInt() ?: 0,
+                        call.argument<Number>("cathedral")?.toLong()?.toInt() ?: 0,
+                        call.argument<Int>("port") ?: 0,
+                        call.argument<Int>("kek") ?: 0,
+                        call.argument<Int>("peer") ?: 0
+                    )
+
+                    try {
+                        result.success(String(words, Charsets.US_ASCII))
+                    } finally {
+                        words.fill(0)
+                    }
+                }
+                "remoteStart" -> {
+                    val flock = flock(call.argument<String>("flock"))
+                    val handle = call.argument<Number>("handle")?.toLong()?.toInt() ?: 0
+                    val device = call.argument<Number>("device")?.toLong()?.toInt() ?: 0
+                    val secret = call.argument<String>("secret") ?: ""
+                    val config = call.argument<String>("config")
+                    val sealed = vault.sealed(flock)
+
+                    withKey(result, "Send the device its keys", create = false) { vk ->
+                        Core.remoteStart(vk, sealed, config, secret, handle, device)
+                        ""
+                    }
+                }
+                "remoteRun" -> background(result) { Core.remoteRun() }
+                "remoteStop" -> background(result) {
+                    Core.remoteStop()
+                    ""
+                }
                 "reminders" -> {
                     @Suppress("UNCHECKED_CAST")
                     Reminders.schedule(this, call.arguments as? List<Map<String, Any>> ?: emptyList())

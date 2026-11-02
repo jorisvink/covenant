@@ -21,3 +21,5 @@ if [ ! -f $BUILD/libsodium/lib/libsodium.a ]; then
 fi
 
 ./dist-build/mbedcrypto.sh host ${CC:-cc} ${AR:-ar}
+
+./dist-build/libkyrka.sh host LIBSODIUM_PATH=$BUILD/libsodium

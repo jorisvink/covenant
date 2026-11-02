@@ -152,11 +152,71 @@ The Flutter side does handle the recovery key. It gets it once when a
 recovery key is made, and it sends it when the user types it in to
 check or restore. See [backups.md](backups.md).
 
+## Adding a remote device
+
+A device that cannot scan a QR code, or is not near the phone, gets
+its keys over a sanctum tunnel instead, set up the way cephas sets it
+up. The tunnel needs both ends in the flock, so the app joins the flock
+for the length of the hand over:
+
+1. The app makes a cosk, registers it and approves it. This takes a
+   KEK ID that never leaves the phone, so it needs no renewal.
+2. The app picks the KEK ID Reliquary hands out next, the lowest one
+   that is free, and the C library makes the words for the device.
+3. The device types in the words, joins the flock at Reliquary with a
+   cosk of its own and gets its cathedral secret back from it.
+4. The app waits for exactly one new device in the flock and approves
+   it. If more than one shows up all of them are removed again. If the
+   device gets another KEK ID than we picked we stop.
+5. The user authenticates, the C library unseals the KEKs and puts
+   together what the device gets.
+6. Both ends set up the tunnel and the C library sends it. The device
+   answers with the SHA3-256 digest of what it got, only a matching
+   digest counts.
+7. The app removes its own device from the flock again.
+
+Vigil gets its configuration without the `cathedral_secret` and
+`cathedral_cosk` lines, it adds its own. A computer gets only its KEK,
+which cephas writes to a file.
+
+### The words
+
+There are 33 words from the cephas word list of 7776 words. The first
+13 are the route, they tell the device where to find us:
+
+```
+flock (7) || our cs id (4) || our kek (1) || its kek (1) ||
+cathedral (4) || port (2) || checksum (2)
+```
+
+All of it big endian, the flock without its domain. The route is a
+number in base 7776, most significant word first. The checksum is the
+first two bytes of:
+
+```
+SHA3-256("CEPHAS.ROUTE.CHECKSUM" || route[0..19) || passphrase)
+```
+
+so a word that is off anywhere is caught before the device tries to
+reach us. The other 20 words are the passphrase, the shared secret of
+the tunnel is derived from it exactly as cephas does in
+cephas_secret_derive(). Its identities and KEK IDs are part of that
+derivation, so a device that joined with other words never gets a
+tunnel up.
+
+The words are everything the device needs. Whoever has them and joins
+before the device does gets its keys, the same as someone who sees the
+QR code. In that case the real device joins second and the app stops,
+so it does not go unnoticed. Only give the words to the person at the
+device, best over a call.
+
 ## Where this lives in the code
 
 - `app/lib/api.dart` is the reliquary API client.
 - `app/lib/pages/provision.dart` adds a device.
 - `src/provision.c` checks the configuration and adds the keys.
 - `src/qr.c` makes the QR code.
+- `src/remote.c` makes the words and runs the tunnel to a remote device,
+  `app/lib/pages/remote.dart` drives it.
 - `app/android/app/src/main/kotlin/se/sanctorum/reliquary/Handoff.kt`
   and `app/ios/Runner/ReliquaryPlugin.swift` hand devices to Vigil.

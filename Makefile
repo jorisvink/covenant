@@ -20,11 +20,13 @@ BASE_CFLAGS+=-fstack-protector-all -Wtype-limits -fno-common -g
 CFLAGS+=$(BASE_CFLAGS)
 CFLAGS+=-Iinclude -Inyfe/include -I$(QRCODEGEN)
 CFLAGS+=-I$(DEPS)/libsodium/include -I$(DEPS)/mbedtls/include
+CFLAGS+=-I$(DEPS)/include
 
 NYFE_CFLAGS=$(BASE_CFLAGS) -Inyfe/include -fno-builtin -DNYFE_LIBRARY_ONLY=1
 MLKEM_CFLAGS=$(BASE_CFLAGS) -Inyfe/include -fno-builtin -DKYBER_K=4
 QR_CFLAGS=-std=c99 -O2 -fPIC -fstack-protector-all -I$(QRCODEGEN)
 
+LDFLAGS+=$(DEPS)/lib/libkyrka.a
 LDFLAGS+=$(DEPS)/mbedtls/lib/libmbedcrypto.a
 LDFLAGS+=$(DEPS)/libsodium/lib/libsodium.a
 
@@ -35,7 +37,8 @@ SRC=	src/covenant.c \
 	src/cipher.c \
 	src/keks.c \
 	src/provision.c \
-	src/qr.c
+	src/qr.c \
+	src/remote.c
 
 NYFE=	nyfe/src/agelas.c \
 	nyfe/src/file.c \
@@ -87,13 +90,15 @@ OBJS+=	$(OBJDIR)/version.o
 all:
 ifeq ("$(PLATFORM)", "host")
 	$(MAKE) $(DEPS)/mbedtls/lib/libmbedcrypto.a
+	$(MAKE) $(DEPS)/lib/libkyrka.a
 endif
 	$(MAKE) $(LIB)
 
 $(LIB): $(OBJS) $(VERSION).c
 	$(AR) rcs $(LIB) $(OBJS)
 
-$(OBJDIR)/src/%.o: src/%.c include/covenant.h include/covenant-int.h
+$(OBJDIR)/src/%.o: src/%.c include/covenant.h include/covenant-int.h \
+    include/wordlist.h
 	@mkdir -p $(shell dirname $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -146,6 +151,9 @@ $(QRCODEGEN)/qrcodegen.c:
 	./dist-build/deps.sh
 
 $(DEPS)/mbedtls/lib/libmbedcrypto.a:
+	./dist-build/host-build.sh
+
+$(DEPS)/lib/libkyrka.a:
 	./dist-build/host-build.sh
 
 tests: all

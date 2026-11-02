@@ -27,6 +27,7 @@
 #include <sodium.h>
 
 #include "covenant-int.h"
+#include "wordlist.h"
 
 /*
  * Tests for the C library. When ambry is in our PATH (or $AMBRY
@@ -53,14 +54,20 @@ static void	test_ambry_reference(const char *, u_int8_t *, size_t);
 static int	test_ambry_unwrap(const u_int8_t *, size_t,
 		    u_int64_t, const u_int8_t *, size_t);
 
+static void	test_remote_words(void);
+
 static void	test_keks_seal(const u_int8_t *, const u_int8_t *);
 static void	test_keks_renew(const u_int8_t *, const u_int8_t *);
 static void	test_config_build(const u_int8_t *, const u_int8_t *);
 static void	test_config_name(const struct covenant_keks *, const char *,
 		    u_int8_t, const char *);
 static void	test_provision_qr(const u_int8_t *, const u_int8_t *);
+static void	test_config_remote(const u_int8_t *, const u_int8_t *);
+static void	test_remote_start(const u_int8_t *, const u_int8_t *);
 static void	test_backup_restore(const u_int8_t *, const u_int8_t *);
 static void	test_provision_config(const u_int8_t *, const u_int8_t *);
+static void	test_route_decode(const char *, struct covenant_route *,
+		    char *, size_t);
 static void	test_ambry_bundle(const u_int8_t *, const u_int8_t *,
 		    const u_int8_t *);
 
@@ -107,6 +114,9 @@ main(void)
 	test_provision_config(secret, sealed);
 	test_keks_renew(secret, sealed);
 	test_backup_restore(secret, sealed);
+	test_remote_words();
+	test_config_remote(secret, sealed);
+	test_remote_start(secret, sealed);
 
 	if (have) {
 		CHECK(system("rm -rf 493abf95a07e0c00 ref.bundle") == 0);
@@ -595,6 +605,309 @@ test_provision_config(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_provision_config(ctx, &dev, config,
 	    sizeof(config)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_COSK);
+}
+
+/*
+ * Make the words for a remote device and read the route back from them
+ * the way the device does.
+ */
+static void
+test_remote_words(void)
+{
+	struct covenant_route	route, got;
+	char			pass[COVENANT_PASSPHRASE_LEN];
+	char			again[COVENANT_REMOTE_WORDS_LEN];
+	char			words[COVENANT_REMOTE_WORDS_LEN];
+
+	memset(&route, 0, sizeof(route));
+	route.flock = TEST_FLOCK;
+	route.identity = 0xdeadbeef;
+	route.cathedral = 0xc0a80101;
+	route.port = 4469;
+	route.kek = 0x01;
+	route.peer = 0xfe;
+
+	CHECK(covenant_remote_words(NULL, &route, words, sizeof(words)) == -1);
+	CHECK(covenant_remote_words(ctx, NULL, words, sizeof(words)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	CHECK(covenant_remote_words(ctx, &route, words,
+	    sizeof(words) - 1) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+
+	/* A flock with its domain, or the same KEK on both ends. */
+	route.flock = TEST_FLOCK | 0x01;
+	CHECK(covenant_remote_words(ctx, &route, words, sizeof(words)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	route.flock = TEST_FLOCK;
+
+	route.peer = route.kek;
+	CHECK(covenant_remote_words(ctx, &route, words, sizeof(words)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	route.peer = 0xfe;
+
+	CHECK(covenant_remote_words(ctx, &route, words, sizeof(words)) == 0);
+	test_route_decode(words, &got, pass, sizeof(pass));
+
+	CHECK(got.flock == route.flock);
+	CHECK(got.identity == route.identity);
+	CHECK(got.cathedral == route.cathedral);
+	CHECK(got.port == route.port);
+	CHECK(got.kek == route.kek);
+	CHECK(got.peer == route.peer);
+
+	/* A fresh passphrase every time. */
+	CHECK(covenant_remote_words(ctx, &route, again, sizeof(again)) == 0);
+	CHECK(strcmp(words, again) != 0);
+
+	covenant_remote_stop(ctx);
+	covenant_remote_stop(ctx);
+}
+
+/*
+ * Read the route and the passphrase back from the words, checking that
+ * the checksum is right and that it catches a word that is off.
+ */
+static void
+test_route_decode(const char *words, struct covenant_route *route,
+    char *pass, size_t pass_len)
+{
+	struct nyfe_sha3	sha;
+	int			count;
+	u_int32_t		val, id;
+	size_t			idx, len, off;
+	u_int16_t		port, which[COVENANT_ROUTE_WORDS];
+	u_int8_t		data[COVENANT_ROUTE_LEN], digest[32];
+	char			copy[COVENANT_REMOTE_WORDS_LEN], *word, *next;
+
+	CHECK(strlen(words) < sizeof(copy));
+	memcpy(copy, words, strlen(words) + 1);
+
+	count = 0;
+	pass[0] = '\0';
+
+	for (word = copy; word != NULL; word = next) {
+		if ((next = strchr(word, ' ')) != NULL)
+			*(next)++ = '\0';
+
+		for (idx = 0; idx < COVENANT_WORD_COUNT; idx++) {
+			if (!strcmp(covenant_words[idx], word))
+				break;
+		}
+
+		CHECK(idx < COVENANT_WORD_COUNT);
+
+		if (count < COVENANT_ROUTE_WORDS) {
+			which[count] = idx;
+		} else {
+			len = strlen(pass);
+			CHECK(snprintf(pass + len, pass_len - len,
+			    "%s ", word) < (int)(pass_len - len));
+		}
+
+		count++;
+	}
+
+	CHECK(count == COVENANT_ROUTE_WORDS + COVENANT_PASSPHRASE_WORDS);
+
+	memset(data, 0, sizeof(data));
+
+	for (idx = 0; idx < COVENANT_ROUTE_WORDS; idx++) {
+		val = which[idx];
+		for (off = sizeof(data); off > 0; off--) {
+			val += data[off - 1] * COVENANT_WORD_COUNT;
+			data[off - 1] = val & 0xff;
+			val >>= 8;
+		}
+		CHECK(val == 0);
+	}
+
+	nyfe_sha3_init256(&sha);
+	nyfe_sha3_update(&sha, COVENANT_ROUTE_LABEL,
+	    strlen(COVENANT_ROUTE_LABEL));
+	nyfe_sha3_update(&sha, data, 19);
+	nyfe_sha3_update(&sha, pass, strlen(pass));
+	nyfe_sha3_final(&sha, digest, sizeof(digest));
+
+	CHECK(data[19] == digest[0] && data[20] == digest[1]);
+
+	memset(route, 0, sizeof(*route));
+
+	memcpy(&route->flock, &data[0], 7);
+	route->flock = be64toh(route->flock);
+
+	memcpy(&id, &data[7], sizeof(id));
+	route->identity = be32toh(id);
+
+	route->kek = data[11];
+	route->peer = data[12];
+
+	memcpy(&id, &data[13], sizeof(id));
+	route->cathedral = be32toh(id);
+
+	memcpy(&port, &data[17], sizeof(port));
+	route->port = be16toh(port);
+
+	/* Another passphrase must not match the checksum. */
+	if (pass[0] == 'a')
+		pass[0] = 'b';
+	else
+		pass[0] = 'a';
+
+	nyfe_sha3_init256(&sha);
+	nyfe_sha3_update(&sha, COVENANT_ROUTE_LABEL,
+	    strlen(COVENANT_ROUTE_LABEL));
+	nyfe_sha3_update(&sha, data, 19);
+	nyfe_sha3_update(&sha, pass, strlen(pass));
+	nyfe_sha3_final(&sha, digest, sizeof(digest));
+
+	CHECK(data[19] != digest[0] || data[20] != digest[1]);
+}
+
+/*
+ * The configuration for a remote device carries the KEK and the signed
+ * name but none of the keys the device has itself.
+ */
+static void
+test_config_remote(const u_int8_t *secret, const u_int8_t *sealed)
+{
+	int			len;
+	struct covenant_keks	*keks;
+	u_int8_t		pk[32], seed_sk[64];
+	char			out[COVENANT_REMOTE_CONFIG_LEN];
+	char			kek[65], pk_hex[65], want[2048];
+	const char		*public =
+	    "vigil 1\n"
+	    "instance far away\n"
+	    "mode gospel\n"
+	    "spi 0c\n"
+	    "cathedral 192.168.1.1:4469\n"
+	    "cathedral_id 5eb2411f\n"
+	    "cathedral_flock 493abf95a07e0c00\n";
+
+	covenant_lock();
+	CHECK((keks = covenant_keks_open(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    sealed, COVENANT_KEKS_SEALED_LEN)) != NULL);
+
+	CHECK(covenant_config_remote(ctx, keks, 0x0c, public,
+	    out, sizeof(out)) == 0);
+
+	(void)sodium_bin2hex(kek, sizeof(kek),
+	    keks->kek[0x0c - 1], COVENANT_KEK_LEN);
+
+	CHECK(crypto_sign_seed_keypair(pk, seed_sk, keks->seed) == 0);
+	(void)sodium_bin2hex(pk_hex, sizeof(pk_hex), pk, sizeof(pk));
+	nyfe_mem_zero(seed_sk, sizeof(seed_sk));
+
+	len = snprintf(want, sizeof(want),
+	    "%skek %s\nname_pubkey %s\nname_signature ", public, kek, pk_hex);
+	CHECK(len >= 0 && (size_t)len < sizeof(want));
+	CHECK(strncmp(out, want, len) == 0);
+	CHECK(strlen(out) == (size_t)len + (COVENANT_SIGNATURE_LEN * 2) + 1);
+
+	test_config_name(keks, out, 0x0c, "far away");
+
+	/* The same checks apply as for any other device. */
+	CHECK(covenant_config_remote(ctx, keks, 0x0d, public,
+	    out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_SPI);
+	CHECK(covenant_config_remote(ctx, keks, 0x0c, "vigil 1\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\ncathedral_secret 00\n",
+	    out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_KEYS);
+
+	covenant_keks_close(keks);
+	covenant_unlock();
+}
+
+/*
+ * Start the tunnel to a remote device, everything we refuse to start
+ * it with and that the cosk is only consumed once it is up.
+ */
+static void
+test_remote_start(const u_int8_t *secret, const u_int8_t *sealed)
+{
+	struct covenant_remote	rem;
+	struct covenant_route	route;
+	u_int32_t		handle;
+	u_int8_t		pk[COVENANT_COSK_PUBLIC_LEN];
+	char			words[COVENANT_REMOTE_WORDS_LEN];
+
+	CHECK(covenant_cosk_new(ctx, &handle, pk, sizeof(pk)) == 0);
+
+	memset(&rem, 0, sizeof(rem));
+	rem.secret = secret;
+	rem.secret_len = COVENANT_VAULT_KEY_LEN;
+	rem.keks = sealed;
+	rem.keks_len = COVENANT_KEKS_SEALED_LEN;
+	rem.cosk = handle;
+	rem.device = 0x5eb2411f;
+	rem.cathedral_secret =
+	    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5";
+	rem.config =
+	    "vigil 1\n"
+	    "instance far away\n"
+	    "mode gospel\n"
+	    "spi 0c\n"
+	    "cathedral 127.0.0.1:4469\n"
+	    "cathedral_id 5eb2411f\n"
+	    "cathedral_flock 493abf95a07e0c00\n";
+
+	/* No words made yet. */
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_REMOTE);
+	CHECK(covenant_remote_run(ctx) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_REMOTE);
+
+	memset(&route, 0, sizeof(route));
+	route.flock = TEST_FLOCK;
+	route.identity = 0xdeadbeef;
+	route.cathedral = 0x7f000001;
+	route.port = 4469;
+	route.kek = 0x01;
+	route.peer = 0x0c;
+
+	CHECK(covenant_remote_words(ctx, &route, words, sizeof(words)) == 0);
+
+	CHECK(covenant_remote_start(NULL, &rem) == -1);
+	CHECK(covenant_remote_start(ctx, NULL) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+
+	rem.secret_len--;
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	rem.secret_len++;
+
+	rem.device = route.identity;
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	rem.device = 0x5eb2411f;
+
+	rem.cosk = handle + 1;
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_COSK);
+	rem.cosk = handle;
+
+	/* A configuration for another KEK leaves everything in place. */
+	rem.config =
+	    "vigil 1\n"
+	    "instance far away\n"
+	    "spi 0d\n"
+	    "cathedral_flock 493abf95a07e0c00\n";
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_SPI);
+
+	rem.config = NULL;
+	CHECK(covenant_remote_start(ctx, &rem) == 0);
+	CHECK(covenant_remote_run(ctx) == COVENANT_REMOTE_WAITING);
+
+	/* Started once, the cosk is gone and it cannot start again. */
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_REMOTE);
+	CHECK(covenant_cosk_drop(ctx, handle) == -1);
+
+	covenant_remote_stop(ctx);
+	CHECK(covenant_remote_run(ctx) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_REMOTE);
 }
 
 /*

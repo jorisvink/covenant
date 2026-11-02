@@ -46,6 +46,9 @@ for target in ios-arm64 ios-simulator-arm64; do
 
 	./dist-build/mbedcrypto.sh $target "$cc" ar
 
+	./dist-build/libkyrka.sh $target \
+	    OSNAME=ios CROSS_BUILD=1 CC="$cc" LIBSODIUM_PATH=$sodium
+
 	make clean-objs
 	make PLATFORM=ios CC="$cc" DEPS=$BUILD libcovenant.a
 	mv libcovenant.a $BUILD/lib/
@@ -53,6 +56,7 @@ for target in ios-arm64 ios-simulator-arm64; do
 
 	libtool -static -o $BUILD/lib/libcovenant-all.a \
 	    $BUILD/lib/libcovenant.a \
+	    $BUILD/lib/libkyrka.a \
 	    $BUILD/mbedtls/lib/libmbedcrypto.a \
 	    $sodium/lib/libsodium.a
 done

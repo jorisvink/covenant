@@ -15,6 +15,7 @@ import '../widgets/fields.dart';
 import '../widgets/marks.dart';
 import '../widgets/ui.dart';
 import 'qr.dart';
+import 'remote.dart';
 
 enum Mode { cathedral, liturgy, tier6, gospel }
 
@@ -36,6 +37,34 @@ Mode? modeNamed(String? name) {
 }
 
 enum _Step { cosk, renew, register, approve, unlock }
+
+enum Where { qr, here, remote, computer }
+
+Future<void> addDevice(String flock, {Device? replace}) async {
+  var here = false;
+
+  try {
+    here = await Core.instance.handoffAvailable();
+  } on CoreError catch (_) {}
+
+  final where = await choose<Where>(
+    title: replace == null ? 'Add a device' : 'Reprovision a device',
+    options: [
+      (Where.qr, 'Phone next to you', 'Scan a QR code with Vigil'),
+      if (replace == null) ...[
+        (Where.remote, 'Phone far away', 'Type words into Vigil'),
+        (Where.computer, 'Computer', 'cephas fetches its KEK'),
+      ],
+      if (here) (Where.here, 'This phone', 'Straight into Vigil here'),
+    ],
+  );
+
+  if (where == null) {
+    return;
+  }
+
+  await push<void>(ProvisionPage(flock: flock, where: where, replace: replace));
+}
 
 String _stepText(_Step step, {required bool here, required bool replace}) =>
     switch (step) {
@@ -73,9 +102,15 @@ List<String> _entries(TextEditingController text) =>
     text.text.split(RegExp(r'[\s,]+')).where((e) => e.isNotEmpty).toList();
 
 class ProvisionPage extends StatefulWidget {
-  const ProvisionPage({super.key, required this.flock, this.replace});
+  const ProvisionPage({
+    super.key,
+    required this.flock,
+    required this.where,
+    this.replace,
+  });
 
   final String flock;
+  final Where where;
   final Device? replace;
 
   @override
@@ -111,8 +146,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
   int? _days;
   bool _renewed = false;
 
-  bool _vigil = false;
-  bool _here = false;
+  Where get _where => widget.where;
+
+  bool get _here => _where == Where.here;
+
+  bool get _remote => _where == Where.remote || _where == Where.computer;
 
   Reliquary get _r => Reliquary.instance;
 
@@ -136,12 +174,17 @@ class _ProvisionPageState extends State<ProvisionPage> {
       (true, true) => 'The new device keeps the name and its type.',
     };
 
-    if (_vigil) {
-      return ask;
-    }
-
-    return '$ask You then get a QR code to scan with the Vigil app on the '
-        'device.';
+    return switch (_where) {
+      Where.qr =>
+        '$ask You then get a QR code to scan with the Vigil app on the '
+            'device.',
+      Where.here => ask,
+      Where.remote =>
+        '$ask You then get words to type into the Vigil app on the device.',
+      Where.computer =>
+        'Give the computer a name. You then get words to type into cephas '
+            'on the computer, it only gets its KEK.',
+    };
   }
 
   List<_Step> get _steps => widget.replace == null
@@ -154,12 +197,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
     _cathedral = _r.session?.cathedral;
     _instance.text = _keep ?? '';
     _mode = _locked ?? _mode;
-
-    Core.instance.handoffAvailable().then((v) {
-      if (mounted) {
-        setState(() => _vigil = v);
-      }
-    }, onError: (_) {});
   }
 
   @override
@@ -190,6 +227,10 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
     if (name.isEmpty) {
       return 'Give the device a name.';
+    }
+
+    if (_where == Where.computer) {
+      return _cathedralCheck();
     }
 
     if (_mode == Mode.cathedral) {
@@ -246,6 +287,10 @@ class _ProvisionPageState extends State<ProvisionPage> {
       }
     }
 
+    return _cathedralCheck();
+  }
+
+  String? _cathedralCheck() {
     final cathedral = _cathedral ?? '';
     if (!RegExp(r'^[^\s:]+:\d+$').hasMatch(cathedral)) {
       return 'Pick a cathedral under advanced settings.';
@@ -254,7 +299,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
     return null;
   }
 
-  String _config(Registration reg, int kek) {
+  String _config(String device, int kek) {
     final out = StringBuffer()
       ..writeln('vigil 1')
       ..writeln('instance ${_instance.text.trim()}');
@@ -298,7 +343,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
     out
       ..writeln('spi $spi')
       ..writeln('cathedral $cathedral')
-      ..writeln('cathedral_id ${reg.id}')
+      ..writeln('cathedral_id $device')
       ..writeln('cathedral_flock ${widget.flock}');
 
     final natport = _r.session?.natport;
@@ -345,6 +390,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
     final problem = _check();
     if (problem != null) {
       notify(problem);
+      return;
+    }
+
+    if (_remote) {
+      _far();
       return;
     }
 
@@ -417,7 +467,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
           kek: _kek!,
           cosk: _cosk!,
           secret: _reg!.secret,
-          config: _config(_reg!, _kek!),
+          config: _config(_reg!.id, _kek!),
         );
 
         _cosk = null;
@@ -442,7 +492,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
         kek: _kek!,
         cosk: _cosk!,
         secret: _reg!.secret,
-        config: _config(_reg!, _kek!),
+        config: _config(_reg!.id, _kek!),
       );
 
       _cosk = null;
@@ -468,6 +518,32 @@ class _ProvisionPageState extends State<ProvisionPage> {
     } on ApiError catch (e) {
       _fail(e.message);
     }
+  }
+
+  void _far() {
+    final computer = _where == Where.computer;
+
+    replace(
+      RemotePage(
+        flock: widget.flock,
+        name: _instance.text.trim(),
+        cathedral: _cathedral!,
+        mode: computer ? null : _mode.name,
+        config: computer
+            ? null
+            : (device, kek) {
+                if (_mode == Mode.cathedral &&
+                    int.parse(_peer.text.trim(), radix: 16) == kek) {
+                  throw ApiError(
+                    'This device got the same KEK ID as the device you '
+                    'picked to connect to. Pick another one.',
+                  );
+                }
+
+                return _config(device, kek);
+              },
+      ),
+    ).ignore();
   }
 
   void _fail(String message) {
@@ -520,10 +596,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
     }
 
     final ok = await confirm(
-      title: 'Stop adding this device',
-      text:
-          'The device is already registered, leaving now removes it '
-          'again.',
+      title: 'Cancel provisioning of this device',
+      text: 'This will automatically remove the devices from the flock.',
       action: 'Stop',
     );
 
@@ -561,7 +635,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
     final kek = await choose<String>(
       title: 'Connect to',
       options: [
-        if (next != null)
+        if (next != null && !_remote)
           (
             '',
             'The next device you add',
@@ -654,22 +728,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
                     'connect again. The new device takes over its identity',
               ),
             Text(_intro, style: Styles.body),
-            if (_vigil) ...[
-              GroupLabel('Which device', index: ++index),
-              Choice<bool>(
-                options: const [(false, 'Another phone'), (true, 'This phone')],
-                value: _here,
-                onChanged: (v) => setState(() => _here = v),
-              ),
-              Text(
-                _here
-                    ? 'Vigil on this phone gets the device straight from '
-                          'Reliquary, no QR code needed.'
-                    : 'You get a QR code to scan with the Vigil app on the '
-                          'other device.',
-                style: Styles.detail,
-              ),
-            ],
             GroupLabel('Name', index: ++index),
             if (_keep != null)
               Text(_keep!, style: Styles.body)
@@ -680,40 +738,42 @@ class _ProvisionPageState extends State<ProvisionPage> {
                 allow: _name,
                 maxLength: 63,
               ),
-            if (_mode == Mode.gospel)
+            if (_mode == Mode.gospel && _where != Where.computer)
               const Text(
                 'The given name is signed by Covenant and authenticated '
                 'by all other devices.',
                 style: Styles.detail,
               ),
-            GroupLabel('How it connects', index: ++index),
-            Choice<Mode>(
-              options: [
-                for (final m in [
-                  Mode.cathedral,
-                  Mode.liturgy,
-                  Mode.gospel,
-                  if (_advanced || _locked == Mode.tier6) Mode.tier6,
-                ])
-                  if (_locked == null || m == _locked) (m, modeLabel(m)),
-              ],
-              value: _mode,
-              onChanged: (m) => setState(() => _mode = m),
-            ),
-            Text(_modeText(), style: Styles.detail),
-            ..._modeFields(() => ++index),
-            const SizedBox(height: 4),
-            SwitchRow(
-              text: 'Show advanced settings',
-              on: _advanced,
-              onChanged: (v) => setState(() {
-                _advanced = v;
-                if (!v && _mode == Mode.tier6 && _locked == null) {
-                  _mode = Mode.cathedral;
-                }
-              }),
-            ),
-            if (_advanced) ..._advancedFields(() => ++index),
+            if (_where != Where.computer) ...[
+              GroupLabel('How it connects', index: ++index),
+              Choice<Mode>(
+                options: [
+                  for (final m in [
+                    Mode.cathedral,
+                    Mode.liturgy,
+                    Mode.gospel,
+                    if (_advanced || _locked == Mode.tier6) Mode.tier6,
+                  ])
+                    if (_locked == null || m == _locked) (m, modeLabel(m)),
+                ],
+                value: _mode,
+                onChanged: (m) => setState(() => _mode = m),
+              ),
+              Text(_modeText(), style: Styles.detail),
+              ..._modeFields(() => ++index),
+              const SizedBox(height: 4),
+              SwitchRow(
+                text: 'Show advanced settings',
+                on: _advanced,
+                onChanged: (v) => setState(() {
+                  _advanced = v;
+                  if (!v && _mode == Mode.tier6 && _locked == null) {
+                    _mode = Mode.cathedral;
+                  }
+                }),
+              ),
+              if (_advanced) ..._advancedFields(() => ++index),
+            ],
           ],
         ],
       ),
@@ -734,8 +794,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
     }
 
     return Btn(
-      label: _here ? 'Add to Vigil' : 'Make QR code',
-      glyph: _here ? GlyphKind.device : GlyphKind.qr,
+      label: 'Provision',
+      glyph: _where == Where.qr ? GlyphKind.qr : GlyphKind.device,
       expand: true,
       busy: _running,
       onTap: _go,

@@ -78,6 +78,22 @@ extern "C" {
     (1648 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + \
     COVENANT_SIGN_SEED_LEN + 16 + 32)
 
+/* The number of words that tell a remote device where to find us. */
+#define COVENANT_ROUTE_WORDS		13
+
+/* The number of words in the passphrase for its tunnel, as in cephas. */
+#define COVENANT_PASSPHRASE_WORDS	20
+
+/* The length of a buffer that fits all words for a remote device. */
+#define COVENANT_REMOTE_WORDS_LEN	512
+
+/*
+ * The states of the tunnel to a remote device.
+ */
+#define COVENANT_REMOTE_WAITING		1
+#define COVENANT_REMOTE_ONLINE		2
+#define COVENANT_REMOTE_DONE		3
+
 /*
  * Library error codes.
  */
@@ -96,6 +112,8 @@ extern "C" {
 #define COVENANT_ERROR_COSK_FULL	12
 #define COVENANT_ERROR_QR_SIZE		13
 #define COVENANT_ERROR_RECOVERY_KEY	14
+#define COVENANT_ERROR_NO_REMOTE	15
+#define COVENANT_ERROR_REMOTE		16
 
 /*
  * What we know about sealed KEKs without unsealing them.
@@ -135,6 +153,47 @@ struct covenant_device {
 
 	u_int8_t	kek;
 	u_int32_t	cosk;
+};
+
+/*
+ * Where a remote device finds us, it gets this as the first words.
+ *
+ * The identity and kek are the ones we joined the flock under, peer is
+ * the KEK the remote device will get. The cathedral is an IPv4 address
+ * in host byte order.
+ */
+struct covenant_route {
+	u_int64_t	flock;
+	u_int32_t	identity;
+	u_int32_t	cathedral;
+	u_int16_t	port;
+	u_int8_t	kek;
+	u_int8_t	peer;
+};
+
+/*
+ * Everything needed to provision a remote device over a cephas tunnel.
+ *
+ * The cathedral secret (hex) and the cosk are ours, the device is the
+ * cathedral id the remote device joined under. The config is the vigil
+ * configuration without its keys, we add the KEK, the public key of
+ * the flock and the signature over the instance of the device. The
+ * remote device adds its own cathedral secret and cosk.
+ *
+ * Without a config we only send the KEK, for cephas on a computer.
+ */
+struct covenant_remote {
+	const void	*secret;
+	size_t		secret_len;
+
+	const void	*keks;
+	size_t		keks_len;
+
+	const char	*config;
+	const char	*cathedral_secret;
+
+	u_int32_t	cosk;
+	u_int32_t	device;
 };
 
 /* A covenant context as an opaque. */
@@ -196,6 +255,12 @@ int	covenant_qr_encode(COVENANT *, const char *, void *, size_t, int *);
 int	covenant_provision(COVENANT *, const struct covenant_device *,
 	    void *, size_t, int *);
 int	covenant_provision_config(COVENANT *, const struct covenant_device *,
+	    char *, size_t);
+
+int	covenant_remote_run(COVENANT *);
+void	covenant_remote_stop(COVENANT *);
+int	covenant_remote_start(COVENANT *, const struct covenant_remote *);
+int	covenant_remote_words(COVENANT *, const struct covenant_route *,
 	    char *, size_t);
 
 #if defined(__cplusplus)

@@ -209,9 +209,7 @@ class _FlockPageState extends State<FlockPage> {
             _Hero(
               flock: flock,
               state: state,
-              onTap: keks == null
-                  ? _generate
-                  : () => push(ProvisionPage(flock: widget.id)),
+              onTap: keks == null ? _generate : () => addDevice(widget.id),
             ),
             if (external)
               const Notice(

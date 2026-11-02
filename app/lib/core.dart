@@ -177,6 +177,8 @@ String _coreError(int code) => switch (code) {
   12 => 'Too many devices are being added at once.',
   13 => 'The device settings are too long for a QR code.',
   14 => 'This recovery key does not open these backups.',
+  15 => 'The words for the device are gone, start over.',
+  16 => 'The device did not answer the way it should, start over.',
   _ => 'Something went wrong ($code).',
 };
 
@@ -271,6 +273,42 @@ class Core {
     'secret': secret,
     'config': config,
   });
+
+  Future<String> remoteWords({
+    required String flock,
+    required int identity,
+    required int cathedral,
+    required int port,
+    required int kek,
+    required int peer,
+  }) async =>
+      await _call<String>('remoteWords', {
+        'flock': flock,
+        'identity': identity,
+        'cathedral': cathedral,
+        'port': port,
+        'kek': kek,
+        'peer': peer,
+      }) ??
+      '';
+
+  Future<void> remoteStart({
+    required String flock,
+    required Cosk cosk,
+    required String secret,
+    required int device,
+    String? config,
+  }) => _call<String>('remoteStart', {
+    'flock': flock,
+    'handle': cosk.handle,
+    'secret': secret,
+    'device': device,
+    'config': config,
+  });
+
+  Future<int> remoteRun() async => await _call<int>('remoteRun') ?? -1;
+
+  Future<void> remoteStop() => _call<String>('remoteStop');
 
   Future<Uint8List> backupKey() async =>
       Uint8List.fromList(await _call<Uint8List>('backupKey') ?? Uint8List(0));

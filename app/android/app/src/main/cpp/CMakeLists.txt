@@ -16,6 +16,11 @@ if(NOT EXISTS ${DEPS}/mbedtls/lib/libmbedcrypto.a)
 	    "run dist-build/android-build.sh in ${RELIQUARY_ROOT} first")
 endif()
 
+if(NOT EXISTS ${DEPS}/lib/libkyrka.a)
+	message(FATAL_ERROR "no libkyrka for ${ANDROID_ABI}, "
+	    "run dist-build/android-build.sh in ${RELIQUARY_ROOT} first")
+endif()
+
 if(NOT EXISTS ${RELIQUARY_ROOT}/obj/version.c)
 	message(FATAL_ERROR "no version.c, "
 	    "run dist-build/android-build.sh in ${RELIQUARY_ROOT} first")
@@ -70,6 +75,7 @@ add_library(covenant SHARED
 	${RELIQUARY_ROOT}/src/keks.c
 	${RELIQUARY_ROOT}/src/provision.c
 	${RELIQUARY_ROOT}/src/qr.c
+	${RELIQUARY_ROOT}/src/remote.c
 	${RELIQUARY_ROOT}/src/platform_android.c
 	${RELIQUARY_ROOT}/obj/version.c)
 
@@ -77,6 +83,7 @@ target_include_directories(covenant PRIVATE
 	${RELIQUARY_ROOT}/include
 	${RELIQUARY_ROOT}/nyfe/include
 	${QRCODEGEN}
+	${DEPS}/include
 	${DEPS}/mbedtls/include
 	${DEPS}/libsodium/include)
 
@@ -84,6 +91,7 @@ target_compile_definitions(covenant PRIVATE PLATFORM_ANDROID _GNU_SOURCE=1)
 target_compile_options(covenant PRIVATE ${STRICT})
 
 target_link_libraries(covenant
+	${DEPS}/lib/libkyrka.a
 	nyfe
 	mlkem1024
 	qrcodegen

@@ -134,9 +134,7 @@ class _DevicePageState extends State<DevicePage> {
                   second: Btn(
                     label: 'Reprovision',
                     expand: true,
-                    onTap: () => push(
-                      ProvisionPage(flock: widget.flock, replace: device),
-                    ),
+                    onTap: () => addDevice(widget.flock, replace: device),
                   ),
                 )
               : device.approved

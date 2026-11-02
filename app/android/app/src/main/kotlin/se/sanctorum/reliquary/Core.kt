@@ -95,6 +95,32 @@ object Core {
     @Synchronized
     fun backupInfo(backup: ByteArray): LongArray? = backupInfo(ctx, backup)
 
+    @Synchronized
+    fun remoteWords(flock: Long, identity: Int, cathedral: Int, port: Int, kek: Int, peer: Int): ByteArray =
+        remoteWords(ctx, flock, identity, cathedral, port, kek, peer) ?: fail()
+
+    @Synchronized
+    fun remoteStart(vk: ByteArray, sealed: ByteArray, config: String?, secret: String, handle: Int, device: Int) {
+        if (!remoteStart(ctx, vk, sealed, config, secret, handle, device)) {
+            fail()
+        }
+    }
+
+    @Synchronized
+    fun remoteRun(): Int {
+        val state = remoteRun(ctx)
+        if (state == -1) {
+            fail()
+        }
+
+        return state
+    }
+
+    @Synchronized
+    fun remoteStop() {
+        remoteStop(ctx)
+    }
+
     fun version(): String = coreVersion()
 
     private fun fail(): Nothing = throw Failure(lastError(ctx))
@@ -177,4 +203,26 @@ object Core {
 
     @JvmStatic
     private external fun backupInfo(ctx: Long, backup: ByteArray): LongArray?
+
+    @JvmStatic
+    private external fun remoteWords(
+        ctx: Long, flock: Long, identity: Int, cathedral: Int, port: Int, kek: Int, peer: Int
+    ): ByteArray?
+
+    @JvmStatic
+    private external fun remoteStart(
+        ctx: Long,
+        vk: ByteArray,
+        sealed: ByteArray,
+        config: String?,
+        secret: String,
+        handle: Int,
+        device: Int
+    ): Boolean
+
+    @JvmStatic
+    private external fun remoteRun(ctx: Long): Int
+
+    @JvmStatic
+    private external fun remoteStop(ctx: Long)
 }

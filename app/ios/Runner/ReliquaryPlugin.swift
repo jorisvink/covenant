@@ -22,6 +22,7 @@ enum Core {
     static let coskLength = 32
     static let qrMax = 177 * 177
     static let configMax = 2048
+    static let wordsMax = 512
     static let vaultKeyLength = 32
     static let rootLength = 32
     static let recipientLength = 1704
@@ -301,6 +302,74 @@ enum Core {
         }
 
         return out.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+    }
+
+    static func remoteWords(flock: UInt64, identity: UInt32, cathedral: UInt32, port: UInt16,
+                            kek: UInt8, peer: UInt8) throws -> String {
+        var out = [CChar](repeating: 0, count: wordsMax)
+        let room = out.count
+        defer {
+            for idx in out.indices {
+                out[idx] = 0
+            }
+        }
+
+        var route = covenant_route()
+        route.flock = flock
+        route.identity = identity
+        route.cathedral = cathedral
+        route.port = port
+        route.kek = kek
+        route.peer = peer
+
+        try call { covenant_remote_words($0, &route, &out, room) }
+
+        return String(cString: out)
+    }
+
+    static func remoteStart(_ vk: [UInt8], sealed: Data, config: String?, secret: String,
+                            handle: UInt32, device: UInt32) throws {
+        let input = [UInt8](sealed)
+
+        try vk.withUnsafeBytes { key in
+            try input.withUnsafeBytes { keks in
+                try secret.withCString { cs in
+                    var rem = covenant_remote()
+
+                    rem.secret = key.baseAddress
+                    rem.secret_len = key.count
+                    rem.keks = keks.baseAddress
+                    rem.keks_len = keks.count
+                    rem.cathedral_secret = cs
+                    rem.cosk = handle
+                    rem.device = device
+
+                    if let config = config {
+                        try config.withCString { cfg in
+                            rem.config = cfg
+                            try call { covenant_remote_start($0, &rem) }
+                        }
+                    } else {
+                        try call { covenant_remote_start($0, &rem) }
+                    }
+                }
+            }
+        }
+    }
+
+    static func remoteRun() throws -> Int {
+        var state: Int32 = 0
+
+        try call { ctx in
+            state = covenant_remote_run(ctx)
+            return state
+        }
+
+        return Int(state)
+    }
+
+    static func remoteStop() {
+        locked { covenant_remote_stop($0) }
     }
 }
 
@@ -724,6 +793,37 @@ final class ReliquaryPlugin: NSObject, FlutterPlugin {
                                                         kek: kek, handle: handle,
                                                         secret: secret, config: config)
                     try Handoff.send(&full)
+                    return ""
+                }
+            case "remoteWords":
+                let flock = try flockArg(args["flock"])
+                let kek = try kekArg(args["kek"])
+                let peer = try kekArg(args["peer"])
+                let identity = UInt32(truncatingIfNeeded: (args["identity"] as? Int) ?? 0)
+                let cathedral = UInt32(truncatingIfNeeded: (args["cathedral"] as? Int) ?? 0)
+                let port = UInt16(truncatingIfNeeded: (args["port"] as? Int) ?? 0)
+
+                result(try Core.remoteWords(flock: UInt64(flock, radix: 16) ?? 0,
+                                            identity: identity, cathedral: cathedral,
+                                            port: port, kek: kek, peer: peer))
+            case "remoteStart":
+                let flock = try flockArg(args["flock"])
+                let handle = UInt32(truncatingIfNeeded: (args["handle"] as? Int) ?? 0)
+                let device = UInt32(truncatingIfNeeded: (args["device"] as? Int) ?? 0)
+                let secret = args["secret"] as? String ?? ""
+                let config = args["config"] as? String
+                let sealed = try Vault.shared.sealed(flock)
+
+                withKey(result, "Send the device its keys", create: false) { vk in
+                    try Core.remoteStart(vk, sealed: sealed, config: config, secret: secret,
+                                         handle: handle, device: device)
+                    return ""
+                }
+            case "remoteRun":
+                background(result) { try Core.remoteRun() }
+            case "remoteStop":
+                background(result) {
+                    Core.remoteStop()
                     return ""
                 }
             case "reminders":

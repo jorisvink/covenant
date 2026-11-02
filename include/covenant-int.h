@@ -19,9 +19,13 @@
 
 #include <sys/types.h>
 
+#include <netinet/in.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <libkyrka/libkyrka.h>
 
 #include "covenant.h"
 #include "libnyfe.h"
@@ -238,10 +242,67 @@ struct covenant_cosk {
 };
 
 /*
+ * The messages we exchange with a remote device, the same as cephas.
+ * An ack carries the SHA3-256 digest of what the device received.
+ */
+#define COVENANT_REMOTE_MSG_HEARTBEAT	1
+#define COVENANT_REMOTE_MSG_KEK		2
+#define COVENANT_REMOTE_MSG_ACK		3
+#define COVENANT_REMOTE_MSG_CONFIG	4
+
+struct covenant_remote_msg {
+	u_int8_t	type;
+	u_int8_t	data[COVENANT_KEK_LEN];
+} __attribute__((packed));
+
+/* The room for a configuration, its public part and the key lines. */
+#define COVENANT_REMOTE_CONFIG_LEN	1344
+
+struct covenant_remote_config {
+	u_int8_t	type;
+	u_int16_t	length;
+	u_int8_t	data[COVENANT_REMOTE_CONFIG_LEN];
+} __attribute__((packed));
+
+/* The KDF labels, these are the ones cephas uses. */
+#define COVENANT_REMOTE_KDF_LABEL	"CEPHAS.KDF.SHARED.SECRET"
+#define COVENANT_REMOTE_PASS_LABEL	"CEPHAS.PBKDF.PASSPHRASE"
+
+/* The label for the checksum over the words. */
+#define COVENANT_ROUTE_LABEL		"CEPHAS.ROUTE.CHECKSUM"
+
+/* The length of a route, see src/remote.c for its layout. */
+#define COVENANT_ROUTE_LEN		21
+
+/* The length of the passphrase, words of at most 9 letters and a space. */
+#define COVENANT_PASSPHRASE_LEN		(COVENANT_PASSPHRASE_WORDS * 10 + 1)
+
+/*
+ * The tunnel to a remote device we are provisioning.
+ */
+struct covenant_tunnel {
+	int				fd;
+	struct kyrka_cathedral_cfg	cfg;
+	time_t				last;
+	struct sockaddr_in		peer;
+	u_int8_t			type;
+	int				state;
+	u_int32_t			error;
+	KYRKA				*kyrka;
+	u_int32_t			device;
+	size_t				length;
+	struct sockaddr_in		cathedral;
+	u_int8_t			digest[32];
+	char				pass[COVENANT_PASSPHRASE_LEN];
+	u_int8_t			payload[COVENANT_REMOTE_CONFIG_LEN];
+};
+
+/*
  * A covenant context.
  */
 struct covenant {
 	u_int32_t		last_error;
+	struct covenant_tunnel	*tunnel;
 	struct covenant_cosk	cosk[COVENANT_COSK_MAX];
 };
 
@@ -306,9 +367,18 @@ struct covenant_keks	*covenant_keks_open(struct covenant *,
 			    const u_int8_t *, size_t, const void *, size_t);
 
 /* src/provision.c */
-int	covenant_config_build(struct covenant *,
-	    const struct covenant_keks *, u_int8_t, const u_int8_t *, size_t,
-	    const u_int8_t *, size_t, const char *, char *, size_t);
+struct covenant_cosk	*covenant_cosk_lookup(struct covenant *, u_int32_t);
+int			covenant_hex_decode(const char *, u_int8_t *, size_t);
+int			covenant_config_remote(struct covenant *,
+			    const struct covenant_keks *, u_int8_t,
+			    const char *, char *, size_t);
+int			covenant_config_build(struct covenant *,
+			    const struct covenant_keks *, u_int8_t,
+			    const u_int8_t *, size_t, const u_int8_t *, size_t,
+			    const char *, char *, size_t);
+
+/* src/remote.c */
+void	covenant_tunnel_free(struct covenant *);
 
 /* src/qr.c */
 int	covenant_qr_render(struct covenant *, const char *, u_int8_t *,

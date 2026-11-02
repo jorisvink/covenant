@@ -98,13 +98,14 @@ covenant_ctx_alloc(void)
 
 /*
  * Zeroize and free the given covenant context, this forgets about
- * all cosk pairs that were still pending.
+ * all cosk pairs that were still pending and any remote tunnel.
  */
 void
 covenant_ctx_free(struct covenant *ctx)
 {
 	if (ctx != NULL) {
 		covenant_lock();
+		covenant_tunnel_free(ctx);
 		covenant_free(ctx, sizeof(*ctx));
 		covenant_unlock();
 	}

@@ -19,6 +19,7 @@
 #include <android/log.h>
 
 #include <jni.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +46,8 @@ JNIEXPORT jstring JNICALL	JNI(coreVersion)(JNIEnv *, jclass);
 JNIEXPORT void JNICALL		JNI(ctxFree)(JNIEnv *, jclass, jlong);
 JNIEXPORT jbyteArray JNICALL	JNI(coskNew)(JNIEnv *, jclass, jlong);
 JNIEXPORT jint JNICALL		JNI(lastError)(JNIEnv *, jclass, jlong);
+JNIEXPORT jint JNICALL		JNI(remoteRun)(JNIEnv *, jclass, jlong);
+JNIEXPORT void JNICALL		JNI(remoteStop)(JNIEnv *, jclass, jlong);
 JNIEXPORT jboolean JNICALL	JNI(coskDrop)(JNIEnv *, jclass, jlong, jint);
 JNIEXPORT jlongArray JNICALL	JNI(keksInfo)(JNIEnv *, jclass,
 				    jlong, jbyteArray);
@@ -74,6 +77,11 @@ JNIEXPORT jbyteArray JNICALL	JNI(backupSeal)(JNIEnv *, jclass, jlong,
 				    jbyteArray, jbyteArray, jbyteArray);
 JNIEXPORT jbyteArray JNICALL	JNI(backupRestore)(JNIEnv *, jclass, jlong,
 				    jbyteArray, jbyteArray, jbyteArray);
+JNIEXPORT jbyteArray JNICALL	JNI(remoteWords)(JNIEnv *, jclass, jlong,
+				    jlong, jint, jint, jint, jint, jint);
+JNIEXPORT jboolean JNICALL	JNI(remoteStart)(JNIEnv *, jclass, jlong,
+				    jbyteArray, jbyteArray, jstring, jstring,
+				    jint, jint);
 
 static void		jni_fatal(const char *, va_list);
 static void		jni_bytes_free(struct jni_bytes *);
@@ -708,6 +716,157 @@ JNI(backupRestore)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
 }
 
 /*
+ * Make the words for a remote device, the cathedral is an IPv4 address
+ * in host byte order. The words carry the passphrase of the tunnel, the
+ * caller only keeps them while they are shown.
+ */
+JNIEXPORT jbyteArray JNICALL
+JNI(remoteWords)(JNIEnv *env, jclass cls, jlong ctx, jlong flock,
+    jint identity, jint cathedral, jint port, jint kek, jint peer)
+{
+	jbyteArray		out;
+	COVENANT		*cov;
+	struct covenant_route	route;
+	char			*words;
+
+	PRECOND(env != NULL);
+
+	(void)cls;
+
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (NULL);
+
+	if (port < 1 || port > USHRT_MAX ||
+	    kek < 1 || kek > COVENANT_KEK_COUNT ||
+	    peer < 1 || peer > COVENANT_KEK_COUNT) {
+		cov->last_error = COVENANT_ERROR_PARAMETER;
+		return (NULL);
+	}
+
+	memset(&route, 0, sizeof(route));
+
+	route.kek = (u_int8_t)kek;
+	route.peer = (u_int8_t)peer;
+	route.port = (u_int16_t)port;
+	route.flock = (u_int64_t)flock;
+	route.identity = (u_int32_t)identity;
+	route.cathedral = (u_int32_t)cathedral;
+
+	covenant_lock();
+	words = covenant_alloc(COVENANT_REMOTE_WORDS_LEN);
+	covenant_unlock();
+
+	out = NULL;
+
+	if (covenant_remote_words(cov, &route,
+	    words, COVENANT_REMOTE_WORDS_LEN) == 0) {
+		out = jni_array_create(env,
+		    (const u_int8_t *)words, strlen(words));
+	}
+
+	covenant_lock();
+	covenant_free(words, COVENANT_REMOTE_WORDS_LEN);
+	covenant_unlock();
+
+	return (out);
+}
+
+/*
+ * Unseal the KEKs and set up the tunnel to the remote device that joined
+ * under the given cathedral id. Without a config we only send its KEK.
+ */
+JNIEXPORT jboolean JNICALL
+JNI(remoteStart)(JNIEnv *env, jclass cls, jlong ctx, jbyteArray secret,
+    jbyteArray in, jstring config, jstring cathedral, jint handle,
+    jint device)
+{
+	jboolean		ret;
+	struct covenant_remote	rem;
+	COVENANT		*cov;
+	struct jni_bytes	key, sealed;
+
+	PRECOND(env != NULL);
+
+	(void)cls;
+
+	if ((cov = covenant_ctx(ctx)) == NULL)
+		return (JNI_FALSE);
+
+	if (cathedral == NULL) {
+		cov->last_error = COVENANT_ERROR_PARAMETER;
+		return (JNI_FALSE);
+	}
+
+	if (jni_bytes_copy(env, secret, &key) == -1)
+		return (JNI_FALSE);
+
+	if (jni_bytes_copy(env, in, &sealed) == -1) {
+		jni_bytes_free(&key);
+		return (JNI_FALSE);
+	}
+
+	memset(&rem, 0, sizeof(rem));
+
+	rem.keks = sealed.data;
+	rem.keks_len = sealed.length;
+
+	rem.secret = key.data;
+	rem.secret_len = key.length;
+
+	rem.cosk = (u_int32_t)handle;
+	rem.device = (u_int32_t)device;
+	rem.cathedral_secret = (*env)->GetStringUTFChars(env, cathedral, NULL);
+
+	if (config != NULL)
+		rem.config = (*env)->GetStringUTFChars(env, config, NULL);
+
+	ret = JNI_FALSE;
+
+	if (rem.cathedral_secret != NULL &&
+	    (config == NULL || rem.config != NULL) &&
+	    covenant_remote_start(cov, &rem) == 0)
+		ret = JNI_TRUE;
+
+	if (rem.cathedral_secret != NULL) {
+		(*env)->ReleaseStringUTFChars(env,
+		    cathedral, rem.cathedral_secret);
+	}
+
+	if (rem.config != NULL)
+		(*env)->ReleaseStringUTFChars(env, config, rem.config);
+
+	jni_bytes_free(&key);
+	jni_bytes_free(&sealed);
+
+	return (ret);
+}
+
+/*
+ * Run the tunnel to the remote device for up to a second, returns its
+ * state or -1 when something went wrong.
+ */
+JNIEXPORT jint JNICALL
+JNI(remoteRun)(JNIEnv *env, jclass cls, jlong ctx)
+{
+	(void)env;
+	(void)cls;
+
+	return ((jint)covenant_remote_run(covenant_ctx(ctx)));
+}
+
+/*
+ * Tear down the tunnel to the remote device.
+ */
+JNIEXPORT void JNICALL
+JNI(remoteStop)(JNIEnv *env, jclass cls, jlong ctx)
+{
+	(void)env;
+	(void)cls;
+
+	covenant_remote_stop(covenant_ctx(ctx));
+}
+
+/*
  * Provision a device into its QR modules when qr is set, or into its
  * configuration when it is not.
  */
@@ -749,26 +908,31 @@ jni_device_provision(JNIEnv *env, jlong ctx, jbyteArray secret, jbyteArray in,
 	covenant_unlock();
 
 	memset(&dev, 0, sizeof(dev));
+
 	dev.secret = key.data;
 	dev.secret_len = key.length;
+
 	dev.keks = sealed.data;
 	dev.keks_len = sealed.length;
+
 	dev.kek = (u_int8_t)kek;
 	dev.cosk = (u_int32_t)handle;
-	dev.cathedral_secret = (*env)->GetStringUTFChars(env, cathedral, NULL);
 	dev.config = (*env)->GetStringUTFChars(env, config, NULL);
+	dev.cathedral_secret = (*env)->GetStringUTFChars(env, cathedral, NULL);
 
 	out = NULL;
 
 	if (dev.cathedral_secret != NULL && dev.config != NULL) {
-		if (qr && covenant_provision(cov, &dev, buf, len, &side) == 0)
+		if (qr && covenant_provision(cov, &dev, buf, len, &side) == 0) {
 			out = jni_array_create(env,
 			    buf, (size_t)side * (size_t)side);
+		}
 
 		if (!qr && covenant_provision_config(cov, &dev,
-		    (char *)buf, len) == 0)
+		    (char *)buf, len) == 0) {
 			out = jni_array_create(env,
 			    buf, strlen((const char *)buf));
+		}
 	}
 
 	if (dev.cathedral_secret != NULL) {
