@@ -110,10 +110,6 @@ the name arrived on, and checks the signature with its own `name_pubkey`.
 A device therefore cannot show itself under the name of another
 device, and the cathedrals never see a name.
 
-Renaming a device in vigil makes its signature stop matching, it then
-falls back to its nickname. A new name needs the device to be
-provisioned again.
-
 For a QR code the configuration is built in memory from `covenant_alloc()`
 and wiped once it is encoded. For a handover to Vigil the platform
 hands the C library a buffer and wipes it after the handover.

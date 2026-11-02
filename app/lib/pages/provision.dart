@@ -18,17 +18,39 @@ import 'qr.dart';
 
 enum Mode { cathedral, liturgy, tier6, gospel }
 
-enum _Step { cosk, register, approve, unlock }
-
-String _stepText(_Step step, {required bool here}) => switch (step) {
-  _Step.cosk => 'Create a cathedral key for the device',
-  _Step.register => 'Register it with Reliquary',
-  _Step.approve => 'Add it to the flock',
-  _Step.unlock =>
-    here
-        ? 'Unlock your KEKs and hand it to Vigil'
-        : 'Unlock your KEKs and make the QR code',
+String modeLabel(Mode mode) => switch (mode) {
+  Mode.cathedral => 'One device',
+  Mode.liturgy => 'Group',
+  Mode.tier6 => 'Tier6',
+  Mode.gospel => 'Comms',
 };
+
+Mode? modeNamed(String? name) {
+  for (final m in Mode.values) {
+    if (m.name == name) {
+      return m;
+    }
+  }
+
+  return null;
+}
+
+enum _Step { cosk, renew, register, approve, unlock }
+
+String _stepText(_Step step, {required bool here, required bool replace}) =>
+    switch (step) {
+      _Step.cosk => 'Create a cathedral key for the device',
+      _Step.renew => 'Replace the KEK of the old device',
+      _Step.register =>
+        replace
+            ? 'Hand the device over at Reliquary'
+            : 'Register it with Reliquary',
+      _Step.approve => 'Add it to the flock',
+      _Step.unlock =>
+        here
+            ? 'Unlock your KEKs and hand it to Vigil'
+            : 'Unlock your KEKs and make the QR code',
+    };
 
 final _name = RegExp(r'[A-Za-z0-9 ._-]');
 final _ip = RegExp(
@@ -51,9 +73,10 @@ List<String> _entries(TextEditingController text) =>
     text.text.split(RegExp(r'[\s,]+')).where((e) => e.isNotEmpty).toList();
 
 class ProvisionPage extends StatefulWidget {
-  const ProvisionPage({super.key, required this.flock});
+  const ProvisionPage({super.key, required this.flock, this.replace});
 
   final String flock;
+  final Device? replace;
 
   @override
   State<ProvisionPage> createState() => _ProvisionPageState();
@@ -85,6 +108,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
   Cosk? _cosk;
   Registration? _reg;
   int? _kek;
+  int? _days;
+  bool _renewed = false;
 
   bool _vigil = false;
   bool _here = false;
@@ -93,10 +118,43 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
   bool get _started => _cosk != null;
 
+  String? get _keep {
+    final old = widget.replace;
+    return old == null ? null : _r.deviceName(widget.flock, old.id);
+  }
+
+  Mode? get _locked {
+    final old = widget.replace;
+    return old == null ? null : modeNamed(_r.deviceMode(widget.flock, old.id));
+  }
+
+  String get _intro {
+    final ask = switch ((_keep != null, _locked != null)) {
+      (false, false) => 'Give the device a name and choose how it connects.',
+      (false, true) =>
+        'Give the device a name, it keeps the its type.',
+      (true, false) => 'The device keeps its name, choose how it connects.',
+      (true, true) => 'The new device keeps the name and its type.',
+    };
+
+    if (_vigil) {
+      return ask;
+    }
+
+    return '$ask You then get a QR code to scan with the Vigil app on the '
+        'device.';
+  }
+
+  List<_Step> get _steps => widget.replace == null
+      ? const [_Step.cosk, _Step.register, _Step.approve, _Step.unlock]
+      : const [_Step.cosk, _Step.renew, _Step.register, _Step.unlock];
+
   @override
   void initState() {
     super.initState();
     _cathedral = _r.session?.cathedral;
+    _instance.text = _keep ?? '';
+    _mode = _locked ?? _mode;
 
     Core.instance.handoffAvailable().then((v) {
       if (mounted) {
@@ -197,9 +255,6 @@ class _ProvisionPageState extends State<ProvisionPage> {
     return null;
   }
 
-  /// The public part of the configuration, as tools/vigil-config would
-  /// write it up to the keys. The C library adds kek, cathedral_secret,
-  /// cathedral_cosk, name_pubkey and name_signature.
   String _config(Registration reg, int kek) {
     final out = StringBuffer()
       ..writeln('vigil 1')
@@ -294,6 +349,15 @@ class _ProvisionPageState extends State<ProvisionPage> {
       return;
     }
 
+    final old = widget.replace;
+
+    if (old != null && !_renewed) {
+      _days ??= await chooseDays();
+      if (_days == null) {
+        return;
+      }
+    }
+
     setState(() {
       _running = true;
       _failed = null;
@@ -304,13 +368,27 @@ class _ProvisionPageState extends State<ProvisionPage> {
       setState(() {});
       _cosk ??= await Core.instance.cosk();
 
-      _at = _Step.register;
-      setState(() {});
-      _reg ??= await _r.api.deviceCreate(widget.flock, _cosk!.pk);
+      if (old != null) {
+        if (!_renewed) {
+          _at = _Step.renew;
+          setState(() {});
+          await _r.renew(widget.flock, old.kek, _days!);
+          _renewed = true;
+        }
 
-      _at = _Step.approve;
-      setState(() {});
-      _kek ??= await _r.approve(widget.flock, _reg!.id);
+        _at = _Step.register;
+        setState(() {});
+        _reg ??= await _r.replaceDevice(widget.flock, old, _cosk!.pk);
+        _kek = old.kek;
+      } else {
+        _at = _Step.register;
+        setState(() {});
+        _reg ??= await _r.api.deviceCreate(widget.flock, _cosk!.pk);
+
+        _at = _Step.approve;
+        setState(() {});
+        _kek ??= await _r.approve(widget.flock, _reg!.id);
+      }
 
       if (_mode == Mode.cathedral && _peerNext) {
         final next = _nextKek(_kek!);
@@ -344,7 +422,12 @@ class _ProvisionPageState extends State<ProvisionPage> {
         );
 
         _cosk = null;
-        await _r.nameDevice(widget.flock, _reg!.id, _instance.text.trim());
+        await _r.nameDevice(
+          widget.flock,
+          _reg!.id,
+          _instance.text.trim(),
+          mode: _mode.name,
+        );
 
         notify('Sent to Vigil, check it there and import it.', warn: false);
         navigatorKey.currentState?.pop();
@@ -361,7 +444,12 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
       _cosk = null;
 
-      await _r.nameDevice(widget.flock, _reg!.id, _instance.text.trim());
+      await _r.nameDevice(
+        widget.flock,
+        _reg!.id,
+        _instance.text.trim(),
+        mode: _mode.name,
+      );
 
       replace(
         QrPage(
@@ -391,7 +479,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
   Future<void> _discard() async {
     final reg = _reg;
 
-    if (reg != null) {
+    if (reg != null && widget.replace == null) {
       try {
         await _r.deleteDevice(widget.flock, reg.id);
       } on ApiError catch (e) {
@@ -403,6 +491,26 @@ class _ProvisionPageState extends State<ProvisionPage> {
   }
 
   Future<void> _leave() async {
+    if (widget.replace != null) {
+      if (!_renewed) {
+        navigatorKey.currentState?.pop();
+        return;
+      }
+
+      final ok = await confirm(
+        title: 'Stop replacing this device',
+        text:
+            'The KEK of the old device is already replaced, it can no '
+            'longer connect. Replace the device again to set up the new one.',
+        action: 'Stop',
+      );
+
+      if (ok) {
+        navigatorKey.currentState?.pop();
+      }
+      return;
+    }
+
     if (_reg == null) {
       navigatorKey.currentState?.pop();
       return;
@@ -440,7 +548,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
     return null;
   }
 
-  int? get _ownKek => _nextKek(0);
+  int? get _ownKek => widget.replace?.kek ?? _nextKek(0);
 
   Future<void> _pickPeer() async {
     final devices = _approved;
@@ -457,11 +565,12 @@ class _ProvisionPageState extends State<ProvisionPage> {
             'For the first device, add the other one right after this',
           ),
         for (final d in devices)
-          (
-            d.kekHex,
-            _r.deviceName(widget.flock, d.id) ?? 'Device ${d.id}',
-            'KEK ID ${d.kekHex}',
-          ),
+          if (d.id != widget.replace?.id)
+            (
+              d.kekHex,
+              _r.deviceName(widget.flock, d.id) ?? 'Device ${d.id}',
+              'KEK ID ${d.kekHex}',
+            ),
       ],
     );
 
@@ -515,23 +624,33 @@ class _ProvisionPageState extends State<ProvisionPage> {
         }
       },
       child: PushedPage(
-        rubric: 'Add a device',
-        title: 'New device',
+        rubric: widget.replace == null
+            ? 'Add a device'
+            : 'Reprovision a device',
+        title: widget.replace == null
+            ? 'New device'
+            : _keep ?? 'Device ${widget.replace!.id}',
         bottom: _bottom(),
         children: [
           if (_started || _running) ...[
-            _Progress(at: _at, failed: _failed, here: _here),
+            _Progress(
+              at: _at,
+              failed: _failed,
+              here: _here,
+              steps: _steps,
+              replace: widget.replace != null,
+            ),
             if (_reg != null) KeyList(rows: [('Device ID', _reg!.id)]),
             if (_failed != null) Notice(kind: NoticeKind.warn, text: _failed!),
           ] else ...[
-            Text(
-              _vigil
-                  ? 'Give the device a name and choose how it connects.'
-                  : 'Give the device a name and choose how it connects. You '
-                        'then get a QR code to scan with the Vigil app on the '
-                        'device.',
-              style: Styles.body,
-            ),
+            if (widget.replace != null)
+              const Notice(
+                kind: NoticeKind.warn,
+                text:
+                    'The KEK of the old device is replaced, it can never '
+                    'connect again. The new device takes over its identity',
+              ),
+            Text(_intro, style: Styles.body),
             if (_vigil) ...[
               GroupLabel('Which device', index: ++index),
               Choice<bool>(
@@ -549,12 +668,15 @@ class _ProvisionPageState extends State<ProvisionPage> {
               ),
             ],
             GroupLabel('Name', index: ++index),
-            Field(
-              controller: _instance,
-              hint: 'laptop',
-              allow: _name,
-              maxLength: 63,
-            ),
+            if (_keep != null)
+              Text(_keep!, style: Styles.body)
+            else
+              Field(
+                controller: _instance,
+                hint: 'laptop',
+                allow: _name,
+                maxLength: 63,
+              ),
             if (_mode == Mode.gospel)
               const Text(
                 'The given name is signed by Covenant and authenticated '
@@ -564,10 +686,13 @@ class _ProvisionPageState extends State<ProvisionPage> {
             GroupLabel('How it connects', index: ++index),
             Choice<Mode>(
               options: [
-                (Mode.cathedral, 'One device'),
-                (Mode.liturgy, 'Group'),
-                (Mode.gospel, 'Comms'),
-                if (_advanced) (Mode.tier6, 'Tier6'),
+                for (final m in [
+                  Mode.cathedral,
+                  Mode.liturgy,
+                  Mode.gospel,
+                  if (_advanced || _locked == Mode.tier6) Mode.tier6,
+                ])
+                  if (_locked == null || m == _locked) (m, modeLabel(m)),
               ],
               value: _mode,
               onChanged: (m) => setState(() => _mode = m),
@@ -580,7 +705,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
               on: _advanced,
               onChanged: (v) => setState(() {
                 _advanced = v;
-                if (!v && _mode == Mode.tier6) {
+                if (!v && _mode == Mode.tier6 && _locked == null) {
                   _mode = Mode.cathedral;
                 }
               }),
@@ -599,7 +724,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
           label: 'Cancel',
           kind: BtnKind.secondary,
           expand: true,
-          onTap: _discard,
+          onTap: widget.replace == null ? _discard : _leave,
         ),
         second: Btn(label: 'Try again', expand: true, onTap: _go),
       );
@@ -804,11 +929,19 @@ class _ProvisionPageState extends State<ProvisionPage> {
 }
 
 class _Progress extends StatelessWidget {
-  const _Progress({required this.at, required this.failed, required this.here});
+  const _Progress({
+    required this.at,
+    required this.failed,
+    required this.here,
+    required this.steps,
+    required this.replace,
+  });
 
   final _Step? at;
   final String? failed;
   final bool here;
+  final List<_Step> steps;
+  final bool replace;
 
   @override
   Widget build(BuildContext context) {
@@ -816,8 +949,8 @@ class _Progress extends StatelessWidget {
       padding: EdgeInsets.zero,
       child: Column(
         children: [
-          for (final step in _Step.values) ...[
-            if (step != _Step.values.first) const Line(),
+          for (final step in steps) ...[
+            if (step != steps.first) const Line(),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
@@ -826,7 +959,7 @@ class _Progress extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      _stepText(step, here: here),
+                      _stepText(step, here: here, replace: replace),
                       style: Styles.body.copyWith(
                         color: _state(step) == Liveness.off
                             ? Palette.dim

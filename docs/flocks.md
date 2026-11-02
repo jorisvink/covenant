@@ -77,6 +77,28 @@ app then also replaces its KEK, like `ambry renew`:
 The removed device can then no longer open any new bundle. Without
 renewal the device keeps a KEK that every new bundle is still made for.
 
+## Replacing a device
+
+A device that is lost, stolen or swapped for a new phone is replaced
+instead of removed. Replacing keeps its device ID, KEK ID and name:
+
+1. The C library replaces the KEK of that KEK ID and the app uploads a
+   new bundle, like removing it does. The old device can no longer open
+   any new bundle.
+2. The app makes a new cosk and hands it to the reliquary with
+   `/v1/device/<flock>/<device>/replace`. The reliquary swaps the cosk
+   public key and gives the device a new cathedral secret, so the old
+   device can no longer talk to the cathedral either.
+3. The app builds the configuration for the new device on the same KEK
+   ID, with the name of the old one. The way it connects (one device,
+   group, comms or tier6) stays the same, the app remembers it per
+   device when it provisions one. For a device provisioned before it
+   did so, any way can be picked.
+
+Because the KEK ID never changes hands, the device name signed for it
+only ever belongs to that device, see
+[communication.md](communication.md).
+
 ## Adding a device
 
 Adding a device registers it with the reliquary, approves it and turns

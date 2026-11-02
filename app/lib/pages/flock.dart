@@ -250,18 +250,11 @@ class _FlockPageState extends State<FlockPage> {
                 index: ++index,
                 trailing: Text('${pending.length}', style: Styles.rubric),
               ),
-              if (!external)
-                const Text(
-                  'These devices asked to join this flock. Only approve the '
-                  'ones you added yourself.',
-                  style: Styles.detail,
-                ),
               for (final d in pending)
                 _DeviceCard(
                   flock: widget.id,
                   device: d,
-                  manage: !external,
-                  onApprove: () => _approve(d),
+                  manage: !external
                 ),
             ],
             GroupLabel(
@@ -449,13 +442,11 @@ class _DeviceCard extends StatelessWidget {
     required this.flock,
     required this.device,
     this.manage = true,
-    this.onApprove,
   });
 
   final String flock;
   final Device device;
   final bool manage;
-  final VoidCallback? onApprove;
 
   @override
   Widget build(BuildContext context) {
@@ -490,10 +481,7 @@ class _DeviceCard extends StatelessWidget {
               ],
             ),
           ),
-          if (!device.approved && manage)
-            Btn(label: 'Approve', kind: BtnKind.ghost, onTap: onApprove)
-          else
-            const Glyph(GlyphKind.chevron, size: 18, color: Palette.dim),
+          const Glyph(GlyphKind.chevron, size: 18, color: Palette.dim),
         ],
       ),
     );

@@ -9,6 +9,7 @@ import '../widgets/buttons.dart';
 import '../widgets/fields.dart';
 import '../widgets/marks.dart';
 import '../widgets/ui.dart';
+import 'provision.dart';
 
 class DevicePage extends StatefulWidget {
   const DevicePage({super.key, required this.flock, required this.id});
@@ -37,18 +38,6 @@ class _DevicePageState extends State<DevicePage> {
 
   String get _name =>
       _r.deviceName(widget.flock, widget.id) ?? 'Device ${widget.id}';
-
-  Future<void> _approve() async {
-    try {
-      await wait(
-        'Approving the device',
-        () => _r.approve(widget.flock, widget.id),
-      );
-      notify('$_name approved.', warn: false);
-    } on ApiError catch (e) {
-      notify(e.message);
-    }
-  }
 
   Future<void> _delete(Device device) async {
     final renew = _renew && device.approved && _r.hasKeks(widget.flock);
@@ -124,6 +113,7 @@ class _DevicePageState extends State<DevicePage> {
         }
 
         final created = device.created;
+        final mode = modeNamed(_r.deviceMode(widget.flock, widget.id));
         final keks = _r.hasKeks(widget.flock);
         final external = _r.external(widget.flock);
 
@@ -132,6 +122,23 @@ class _DevicePageState extends State<DevicePage> {
           title: _name,
           bottom: external
               ? null
+              : device.approved && keks
+              ? BtnPair(
+                  first: Btn(
+                    label: 'Remove',
+                    glyph: GlyphKind.trash,
+                    kind: BtnKind.secondary,
+                    expand: true,
+                    onTap: () => _delete(device),
+                  ),
+                  second: Btn(
+                    label: 'Reprovision',
+                    expand: true,
+                    onTap: () => push(
+                      ProvisionPage(flock: widget.flock, replace: device),
+                    ),
+                  ),
+                )
               : device.approved
               ? Btn(
                   label: 'Remove device',
@@ -140,14 +147,11 @@ class _DevicePageState extends State<DevicePage> {
                   expand: true,
                   onTap: () => _delete(device),
                 )
-              : BtnPair(
-                  first: Btn(
-                    label: 'Reject',
-                    kind: BtnKind.secondary,
-                    expand: true,
-                    onTap: () => _delete(device),
-                  ),
-                  second: Btn(label: 'Approve', expand: true, onTap: _approve),
+              : Btn(
+                  label: 'Reject',
+                  kind: BtnKind.secondary,
+                  expand: true,
+                  onTap: () => _delete(device),
                 ),
           children: [
             Panel(
@@ -173,6 +177,7 @@ class _DevicePageState extends State<DevicePage> {
               rows: [
                 ('Device ID', device.id),
                 ('KEK ID', device.approved ? device.kekHex : '-'),
+                ('Type', mode == null ? '-' : modeLabel(mode)),
                 ('Added', created == null ? '-' : dateTime(created)),
               ],
             ),
@@ -185,15 +190,12 @@ class _DevicePageState extends State<DevicePage> {
             if (!device.approved && !external)
               const Notice(
                 text:
-                    'Only approve devices you added yourself. A device that '
-                    'asked to join from a computer also needs its KEK file, '
-                    'which this app never hands out.',
+                    'This device asked to join your flock, Covenant cannot '
+                    'provision this device due to how it handles its KEKs.',
               ),
             if (device.approved && keks)
               SwitchRow(
-                text:
-                    'Replace its KEK when removing it. Do this if the '
-                    'device was lost or stolen.',
+                text: 'Update the encrypted keys when removing a device.',
                 label: 'Replace the KEK',
                 on: _renew,
                 onChanged: (v) => setState(() => _renew = v),

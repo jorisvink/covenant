@@ -119,8 +119,23 @@ class Reliquary extends ChangeNotifier {
     return names['$flock/$device'] as String?;
   }
 
-  Future<void> nameDevice(String flock, String device, String name) =>
-      _names((names) => names['$flock/$device'] = name);
+  String? deviceMode(String flock, String device) {
+    final modes = _prefs['modes'] as Map<String, dynamic>? ?? const {};
+    return modes['$flock/$device'] as String?;
+  }
+
+  Future<void> nameDevice(
+    String flock,
+    String device,
+    String name, {
+    String? mode,
+  }) async {
+    await _names((names) => names['$flock/$device'] = name);
+
+    if (mode != null) {
+      await _map('modes', (modes) => modes['$flock/$device'] = mode);
+    }
+  }
 
   String? flockName(String flock) {
     final names = _prefs['names'] as Map<String, dynamic>? ?? const {};
@@ -313,6 +328,10 @@ class Reliquary extends ChangeNotifier {
     await _names(
       (names) => names.removeWhere((k, _) => k == id || k.startsWith('$id/')),
     );
+    await _map(
+      'modes',
+      (modes) => modes.removeWhere((k, _) => k.startsWith('$id/')),
+    );
     await _cache();
   }
 
@@ -323,10 +342,27 @@ class Reliquary extends ChangeNotifier {
     return kek;
   }
 
+  Future<Registration> replaceDevice(
+    String flock,
+    Device device,
+    Uint8List pk,
+  ) async {
+    _manage(flock);
+    final (reg, kek) = await api.deviceReplace(flock, device.id, pk);
+    await refreshFlock(flock);
+
+    if (kek != device.kek) {
+      throw ApiError('Reliquary moved the device to another KEK ID.');
+    }
+
+    return reg;
+  }
+
   Future<void> deleteDevice(String flock, String device) async {
     _manage(flock);
     await api.deviceDelete(flock, device);
     await _names((names) => names.remove('$flock/$device'));
+    await _map('modes', (modes) => modes.remove('$flock/$device'));
     await refreshFlock(flock);
   }
 
@@ -492,14 +528,20 @@ class Reliquary extends ChangeNotifier {
     await core.prefsSave(_prefs);
   }
 
-  Future<void> _names(void Function(Map<String, dynamic>) change) async {
-    final names = Map<String, dynamic>.from(
-      _prefs['names'] as Map<String, dynamic>? ?? const {},
+  Future<void> _names(void Function(Map<String, dynamic>) change) =>
+      _map('names', change);
+
+  Future<void> _map(
+    String key,
+    void Function(Map<String, dynamic>) change,
+  ) async {
+    final map = Map<String, dynamic>.from(
+      _prefs[key] as Map<String, dynamic>? ?? const {},
     );
 
-    change(names);
+    change(map);
 
-    _prefs['names'] = names;
+    _prefs[key] = map;
     await core.prefsSave(_prefs);
     notifyListeners();
   }

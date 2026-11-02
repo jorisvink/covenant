@@ -436,6 +436,26 @@ class Api {
     throw ApiError(text);
   }
 
+  Future<(Registration, int)> deviceReplace(
+    String flock,
+    String device,
+    Uint8List pk,
+  ) async {
+    final json = _json(await _post('device/$flock/$device/replace', pk));
+    final id = json['cathedral_id'] as String? ?? '';
+    final secret = json['cathedral_secret'] as String? ?? '';
+    final kek = json['kek'] as int? ?? 0;
+
+    if (id != device ||
+        kek < 1 ||
+        kek > 255 ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(secret)) {
+      throw ApiError('Reliquary sent back an invalid device, try again.');
+    }
+
+    return (Registration(id, secret, json['flock'] as String? ?? flock), kek);
+  }
+
   Future<String> deviceDelete(String flock, String device) =>
       _post('device/$flock/$device/delete');
 
