@@ -1,8 +1,3 @@
-// Provisioning a device: register a fresh cosk with the reliquary,
-// approve the device and have the C library turn it all into a vigil QR
-// code. This is rlq flock join + device approve + kek install +
-// tools/vigil-config.
-
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -52,10 +47,10 @@ Future<void> addDevice(String flock, {Device? replace}) async {
     options: [
       (Where.qr, 'Phone next to you', 'Scan a QR code with Vigil'),
       if (replace == null) ...[
-        (Where.remote, 'Phone far away', 'Type words into Vigil'),
-        (Where.computer, 'Computer', 'cephas fetches its KEK'),
+        (Where.remote, 'Phone far away', 'Type secret words into Vigil'),
+        (Where.computer, 'Computer', 'Type secret words into the cephas tool'),
       ],
-      if (here) (Where.here, 'This phone', 'Straight into Vigil here'),
+      if (here) (Where.here, 'This phone', 'Provision the Vigil app on this phone'),
     ],
   );
 
@@ -180,10 +175,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
             'device.',
       Where.here => ask,
       Where.remote =>
-        '$ask You then get words to type into the Vigil app on the device.',
+        '$ask You then get secret words to type into the Vigil app on the '
+            'device.',
       Where.computer =>
-        'Give the computer a name. You then get words to type into cephas '
-            'on the computer, it only gets its KEK.',
+        'Give the computer a name. You then get secret words to type into '
+            'cephas on the computer, it only gets its KEK.',
     };
   }
 

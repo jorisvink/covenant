@@ -162,8 +162,8 @@ for the length of the hand over:
 1. The app makes a cosk, registers it and approves it. This takes a
    KEK ID that never leaves the phone, so it needs no renewal.
 2. The app picks the KEK ID Reliquary hands out next, the lowest one
-   that is free, and the C library makes the words for the device.
-3. The device types in the words, joins the flock at Reliquary with a
+   that is free, and the C library makes the secret words for the device.
+3. The device types in the secret words, joins the flock at Reliquary with a
    cosk of its own and gets its cathedral secret back from it.
 4. The app waits for exactly one new device in the flock and approves
    it. If more than one shows up all of them are removed again. If the
@@ -179,9 +179,9 @@ Vigil gets its configuration without the `cathedral_secret` and
 `cathedral_cosk` lines, it adds its own. A computer gets only its KEK,
 which cephas writes to a file.
 
-### The words
+### The secret words
 
-There are 33 words from the cephas word list of 7776 words. The first
+There are 33 secret words from the cephas word list of 7776 words. The first
 13 are the route, they tell the device where to find us:
 
 ```
@@ -201,13 +201,13 @@ so a word that is off anywhere is caught before the device tries to
 reach us. The other 20 words are the passphrase, the shared secret of
 the tunnel is derived from it exactly as cephas does in
 cephas_secret_derive(). Its identities and KEK IDs are part of that
-derivation, so a device that joined with other words never gets a
+derivation, so a device that joined with other secret words never gets a
 tunnel up.
 
-The words are everything the device needs. Whoever has them and joins
+The secret words are everything the device needs. Whoever has them and joins
 before the device does gets its keys, the same as someone who sees the
 QR code. In that case the real device joins second and the app stops,
-so it does not go unnoticed. Only give the words to the person at the
+so it does not go unnoticed. Only give the secret words to the person at the
 device, best over a call.
 
 ## Where this lives in the code

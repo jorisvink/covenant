@@ -23,7 +23,7 @@ or imported directly on the same phone via Handover.
 A remote phone can be provisioned via an on-demand sanctum tunnel
 between Vigil and Covenant. This means the provisioning config
 is sent encrypted between the two applications with the caveat
-that the shared secret is based on diceware-like random words.
+that the shared secret is based on secret words (diceware-like random words).
 
 A device running cephas can also be provisioned this way.
 See docs/communication.md for more information on that.

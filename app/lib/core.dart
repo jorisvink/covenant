@@ -177,7 +177,7 @@ String _coreError(int code) => switch (code) {
   12 => 'Too many devices are being added at once.',
   13 => 'The device settings are too long for a QR code.',
   14 => 'This recovery key does not open these backups.',
-  15 => 'The words for the device are gone, start over.',
+  15 => 'The secret words for the device are gone, start over.',
   16 => 'The device did not answer the way it should, start over.',
   _ => 'Something went wrong ($code).',
 };

@@ -30,8 +30,6 @@ class _FlockPageState extends State<FlockPage> {
     _r.refreshFlock(widget.id).ignore();
   }
 
-  /// Run work the user waits for, then ask whatever comes after it
-  /// before telling the user it is done so the two never overlap.
   Future<void> _run(
     String text,
     Future<String> Function() work, {

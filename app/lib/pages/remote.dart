@@ -14,11 +14,11 @@ import '../widgets/ui.dart';
 enum _Step { join, words, approve, unlock, send }
 
 String _stepText(_Step step) => switch (step) {
-  _Step.join => 'Join the flock for the hand over',
-  _Step.words => 'Wait for the device to join with the words',
-  _Step.approve => 'Add it to the flock',
-  _Step.unlock => 'Unlock your KEKs',
-  _Step.send => 'Send the device its keys',
+  _Step.join => 'Joining the flock for the hand over',
+  _Step.words => 'Waiting for the device to join the flock',
+  _Step.approve => 'Approving the new device in the flock',
+  _Step.unlock => 'Unlocking the flock KEKs',
+  _Step.send => 'Sending the device its configuration',
 };
 
 class _Cancelled implements Exception {}
@@ -249,7 +249,7 @@ class _RemotePageState extends State<RemotePage> {
 
         throw ApiError(
           'More than one device joined the flock, they were removed again. '
-          'Start over with new words.',
+          'Start over with new secret words.',
         );
       }
 
@@ -279,7 +279,7 @@ class _RemotePageState extends State<RemotePage> {
       if (DateTime.now().isAfter(until)) {
         throw ApiError(
           'The device did not connect in time. Check that it typed the '
-          'words right and start over.',
+          'secret words right and start over.',
         );
       }
     }
@@ -371,7 +371,7 @@ class _RemotePageState extends State<RemotePage> {
         }
       },
       child: PushedPage(
-        rubric: _computer ? 'Add a computer' : 'Add a device by words',
+        rubric: _computer ? 'Add a computer' : 'Add a device by secret words',
         title: widget.name,
         bottom: _failed != null
             ? BtnPair(
@@ -394,7 +394,8 @@ class _RemotePageState extends State<RemotePage> {
           if (_failed != null) Notice(kind: NoticeKind.warn, text: _failed!),
           if (words != null && _computer) ...[
             const Text(
-              'Run these on the computer, cephas asks for the words below.',
+              'Run these on the computer, cephas asks for the secret words '
+              'below.',
               style: Styles.body,
             ),
             Pre.text(
@@ -404,8 +405,8 @@ class _RemotePageState extends State<RemotePage> {
           ],
           if (words != null && !_computer)
             const Text(
-              'On the device open Vigil, choose to join with words and type '
-              'in these words in this order.',
+              'On the device open Vigil, choose to join with secret words '
+              'and type them in this order.',
               style: Styles.body,
             ),
           if (words != null) ...[
