@@ -9,29 +9,14 @@ OUT=$TOPDIR/build/ios
 
 mkdir -p $OUT
 
-if [ ! -d $OUT/Clibsodium.xcframework ]; then
-	rm -rf $TOPDIR/build/ios-libsodium-src
-	cp -R $TOPDIR/build/src/libsodium $TOPDIR/build/ios-libsodium-src
-	(cd $TOPDIR/build/ios-libsodium-src && \
-	    env LIBSODIUM_FULL_BUILD=1 LIBSODIUM_SKIP_SIMULATORS= \
-	    IOS_VERSION_MIN=15.0.0 IOS_SIMULATOR_VERSION_MIN=15.0.0 \
-	    ./dist-build/apple-xcframework.sh)
-	rm -rf $OUT/Clibsodium.xcframework
-	cp -r $TOPDIR/build/ios-libsodium-src/libsodium-apple/Clibsodium.xcframework \
-	    $OUT/
-	rm -rf $TOPDIR/build/ios-libsodium-src
-fi
-
 for target in ios-arm64 ios-simulator-arm64; do
 	case $target in
 	ios-arm64)
 		sdk=iphoneos
-		slice=ios-arm64
 		cflags="-arch arm64 -mios-version-min=15.0"
 		;;
 	ios-simulator-arm64)
 		sdk=iphonesimulator
-		slice=ios-arm64_x86_64-simulator
 		cflags="-arch arm64 -mios-simulator-version-min=15.0"
 		;;
 	esac
@@ -40,9 +25,8 @@ for target in ios-arm64 ios-simulator-arm64; do
 	BUILD=$TOPDIR/build/$target
 	sodium=$BUILD/libsodium
 
-	mkdir -p $sodium/include $sodium/lib $BUILD/lib
-	cp -r $OUT/Clibsodium.xcframework/$slice/Headers/* $sodium/include/
-	cp $OUT/Clibsodium.xcframework/$slice/libsodium.a $sodium/lib/
+	./dist-build/libsodium.sh $target \
+	    --host=aarch64-apple-darwin CC="$cc"
 
 	./dist-build/mbedcrypto.sh $target "$cc" ar
 
