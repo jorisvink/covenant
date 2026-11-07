@@ -7,9 +7,9 @@ SRC=$TOPDIR/build/src
 
 . ./dist-build/fetch.sh
 
-LIBSODIUM_VERSION=1.0.20
+LIBSODIUM_VERSION=1.0.22
 LIBSODIUM_URL=https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz
-LIBSODIUM_SHA256=ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc18d30ce19
+LIBSODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
 
 MBEDTLS_VERSION=3.6.7
 MBEDTLS_URL=https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VERSION/mbedtls-$MBEDTLS_VERSION.tar.bz2
