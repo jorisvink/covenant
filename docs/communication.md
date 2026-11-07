@@ -107,8 +107,12 @@ Vigil sends its name and the signature to the devices it chats with.
 The receiver does not take the flock or the KEK id from the sender. It
 uses the flock of its own configuration and the KEK id of the tunnel
 the name arrived on, and checks the signature with its own `name_pubkey`.
-A device therefore cannot show itself under the name of another
-device, and the cathedrals never see a name.
+A device therefore cannot pick or change its name at runtime, and it
+cannot show a name on the tunnel of another device. A name can only be
+revoked by renewing the KEK slot it was signed for, and the same name
+can be signed for more than one device, so what identifies a device is
+its KEK slot and the name is a label that the key of the flock vouches
+for. The cathedrals never see a name.
 
 For a QR code the configuration is built in memory from `covenant_alloc()`
 and wiped once it is encoded. For a handover to Vigil the platform
