@@ -179,7 +179,7 @@ String _coreError(int code) => switch (code) {
   14 => 'This recovery key does not open these backups.',
   15 => 'The secret words for the device are gone, start over.',
   16 => 'The device did not answer the way it should, start over.',
-  17 => 'That passphrase does not unlock your KEKs.',
+  17 => 'That passphrase does not unlock your KEKs (wrong passphrase).',
   _ => 'Something went wrong ($code).',
 };
 
