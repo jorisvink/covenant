@@ -2,5 +2,6 @@ obj/
 build/
 libcovenant.a
 tests/core_test
+tests/remote_test
 tools/covenant-restore
 app/ios/Team.xcconfig

@@ -62,6 +62,11 @@ MLKEM=	mlkem1024/src/cbd.c \
 	mlkem1024/src/symmetric-shake.c \
 	mlkem1024/src/verify.c
 
+ifeq ("$(COVERAGE)", "1")
+	CFLAGS+=--coverage -O0 -DCOVENANT_COVERAGE
+	LDFLAGS+=--coverage
+endif
+
 ifeq ("$(SANITIZE)", "1")
 	CFLAGS+=-fsanitize=address,undefined
 	LDFLAGS+=-fsanitize=address,undefined
@@ -79,7 +84,8 @@ else
 $(error unknown platform $(PLATFORM), android is built via app/android)
 endif
 
-TESTS=	tests/core_test
+TESTS=	tests/core_test tests/remote_test
+COVDIR=	obj/coverage
 TOOLS=	tools/covenant-restore
 
 OBJS=	$(SRC:%.c=$(OBJDIR)/%.o)
@@ -166,6 +172,35 @@ tests-run: tests
 		./$$t || exit 1; \
 	done
 
+coverage:
+	$(MAKE) $(DEPS)/mbedtls/lib/libmbedcrypto.a
+	$(MAKE) $(DEPS)/lib/libkyrka.a
+	$(MAKE) COVERAGE=1 OBJDIR=$(COVDIR) LIB=$(COVDIR)/libcovenant.a \
+	    coverage-report
+
+coverage-report: $(LIB)
+	@for t in $(TESTS); do \
+		echo "$(CC) $$t.c -o $(OBJDIR)/$$t"; \
+		mkdir -p $(OBJDIR)/tests; \
+		$(CC) $(CFLAGS) $$t.c -Wl,--start-group $(LIB) \
+		    $(LDFLAGS) -Wl,--end-group -lpthread \
+		    -o $(OBJDIR)/$$t || exit 1; \
+	done
+	find $(OBJDIR) -name '*.gcda' -delete
+	@for t in $(TESTS); do \
+		echo "running $(OBJDIR)/$$t"; \
+		./$(OBJDIR)/$$t || exit 1; \
+	done
+	lcov --quiet --rc geninfo_unexecuted_blocks=1 --capture \
+	    --directory $(OBJDIR)/src \
+	    --output-file $(OBJDIR)/coverage.info
+	lcov --quiet --remove $(OBJDIR)/coverage.info '*/include/*' \
+	    --output-file $(OBJDIR)/coverage.info
+	genhtml --quiet --output-directory $(OBJDIR)/html \
+	    $(OBJDIR)/coverage.info
+	@lcov --summary $(OBJDIR)/coverage.info
+	@echo "report in $(OBJDIR)/html/index.html"
+
 tools: all
 ifneq ("$(PLATFORM)", "host")
 	$(error the tools only build for the host)
@@ -176,7 +211,8 @@ tools/%: tools/%.c $(LIB)
 	$(CC) $(CFLAGS) $< $(LIB) $(LDFLAGS) -lpthread -o $@
 
 tests/%: tests/%.c $(LIB)
-	$(CC) $(CFLAGS) $< $(LIB) $(LDFLAGS) -lpthread -o $@
+	$(CC) $(CFLAGS) $< -Wl,--start-group $(LIB) $(LDFLAGS) \
+	    -Wl,--end-group -lpthread -o $@
 
 deps:
 	./dist-build/deps.sh
@@ -219,5 +255,6 @@ clean-objs:
 	rm -rf $(OBJDIR) $(LIB) $(TESTS) $(TOOLS)
 
 .PHONY: all clean clean-objs force deps tests tests-run tools version
+.PHONY: coverage coverage-report
 .PHONY: android android-deps android-run ios ios-deps linux
 .PHONY: linux-install linux-uninstall

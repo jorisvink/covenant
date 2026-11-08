@@ -16,8 +16,11 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include <inttypes.h>
+#include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,8 +57,21 @@ static void	test_ambry_reference(const char *, u_int8_t *, size_t);
 static int	test_ambry_unwrap(const u_int8_t *, size_t,
 		    u_int64_t, const u_int8_t *, size_t);
 
+static void	test_version(void);
 static void	test_key_wrap(void);
+static void	test_qr_limit(void);
+static void	test_cosk_limit(void);
+static void	test_kek_derive(void);
 static void	test_remote_words(void);
+static void	test_cipher_vector(void);
+static void	test_emergency_erase(void);
+static void	test_fatal_report(const char *, va_list);
+static void	test_hex(const char *, u_int8_t *, size_t);
+static void	test_fatal(const u_int8_t *, const u_int8_t *, int);
+static void	test_backup_remac(const u_int8_t *, u_int8_t *, size_t);
+
+static void	test_wrong_vault(const u_int8_t *, const u_int8_t *);
+static void	test_backup_forged(const u_int8_t *, const u_int8_t *);
 
 static void	test_keks_seal(const u_int8_t *, const u_int8_t *);
 static void	test_keks_renew(const u_int8_t *, const u_int8_t *);
@@ -75,6 +91,15 @@ static void	test_ambry_bundle(const u_int8_t *, const u_int8_t *,
 /* The path to ambry, when we have one. */
 static char	ambry[1024];
 
+/* Where a forked child reports what it saw in the fatal callback. */
+static int		fatal_fd = -1;
+static u_int8_t		*fatal_key = NULL;
+
+#if defined(COVENANT_COVERAGE)
+/* Flushes coverage data, a child that aborts would lose it otherwise. */
+extern void	__gcov_dump(void);
+#endif
+
 /* The context all tests run under. */
 static COVENANT	*ctx = NULL;
 
@@ -91,6 +116,12 @@ main(void)
 	CHECK(covenant_last_error(NULL) == COVENANT_ERROR_NO_CONTEXT);
 	CHECK(covenant_random_bytes(ctx, secret, sizeof(secret)) == 0);
 	CHECK(covenant_random_bytes(NULL, secret, sizeof(secret)) == -1);
+	CHECK(covenant_random_bytes(ctx, NULL, sizeof(secret)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	CHECK(covenant_random_bytes(ctx, secret, 0) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	CHECK(covenant_random_bytes(ctx, NULL, 0) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
 
 
 	have = test_ambry_find(getenv("AMBRY"));
@@ -119,6 +150,16 @@ main(void)
 	test_remote_words();
 	test_config_remote(secret, sealed);
 	test_remote_start(secret, sealed);
+	test_version();
+	test_qr_limit();
+	test_cosk_limit();
+	test_kek_derive();
+	test_cipher_vector();
+	test_wrong_vault(secret, sealed);
+	test_backup_forged(secret, sealed);
+	test_emergency_erase();
+	test_fatal(secret, sealed, 1);
+	test_fatal(secret, sealed, 0);
 
 	if (have) {
 		CHECK(system("rm -rf 493abf95a07e0c00 ref.bundle") == 0);
@@ -169,6 +210,13 @@ test_key_wrap(void)
 
 	memcpy(copy, wrapped, sizeof(copy));
 	copy[7] ^= 0x01;
+	CHECK(covenant_key_unwrap(ctx, "hunter2", 7, copy,
+	    sizeof(copy), out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+
+	/* Not a wrapped key at all. */
+	memcpy(copy, wrapped, sizeof(copy));
+	memcpy(copy, "COVK", 4);
 	CHECK(covenant_key_unwrap(ctx, "hunter2", 7, copy,
 	    sizeof(copy), out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
@@ -924,8 +972,10 @@ test_remote_start(const u_int8_t *secret, const u_int8_t *sealed)
 	struct covenant_remote	rem;
 	struct covenant_route	route;
 	u_int32_t		handle;
+	u_int8_t		other[COVENANT_VAULT_KEY_LEN];
 	u_int8_t		pk[COVENANT_COSK_PUBLIC_LEN];
 	char			words[COVENANT_REMOTE_WORDS_LEN];
+	u_int8_t		elsewhere[COVENANT_KEKS_SEALED_LEN];
 
 	CHECK(covenant_cosk_new(ctx, &handle, pk, sizeof(pk)) == 0);
 
@@ -981,6 +1031,28 @@ test_remote_start(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_remote_start(ctx, &rem) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_COSK);
 	rem.cosk = handle;
+
+	rem.cathedral_secret =
+	    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5zz";
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	rem.cathedral_secret =
+	    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5";
+
+	/* KEKs we cannot open, or the KEKs of another flock. */
+	memcpy(other, secret, sizeof(other));
+	other[0] ^= 0x01;
+	rem.secret = other;
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+	rem.secret = secret;
+
+	covenant_keks_generate(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    TEST_FLOCK + 0x100, elsewhere, sizeof(elsewhere));
+	rem.keks = elsewhere;
+	CHECK(covenant_remote_start(ctx, &rem) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
+	rem.keks = sealed;
 
 	/* A configuration for another KEK leaves everything in place. */
 	rem.config =
@@ -1411,4 +1483,527 @@ test_file_read(const char *path, u_int8_t *buf, size_t len)
 	CHECK(fread(&extra, 1, 1, fp) == 0);
 
 	(void)fclose(fp);
+}
+
+/*
+ * The version names the build revision and the date it was built on,
+ * as "revision (YYYY-MM-DD)".
+ */
+static void
+test_version(void)
+{
+	size_t		len;
+	const char	*version;
+
+	CHECK((version = covenant_version()) != NULL);
+
+	len = strlen(version);
+	CHECK(len > 13);
+
+	CHECK(version[len - 13] == ' ' && version[len - 12] == '(');
+	CHECK(version[len - 7] == '-' && version[len - 4] == '-');
+	CHECK(version[len - 1] == ')');
+}
+
+/*
+ * More than a QR code can hold is refused, not cut short.
+ */
+static void
+test_qr_limit(void)
+{
+	int		side;
+	char		*text;
+	u_int8_t	qr[COVENANT_QR_MAX_LEN];
+
+	CHECK((text = malloc(3001)) != NULL);
+	memset(text, 'a', 3000);
+	text[3000] = '\0';
+
+	CHECK(covenant_qr_encode(ctx, text, qr, sizeof(qr), &side) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_QR_SIZE);
+
+	CHECK(covenant_qr_encode(NULL, "vigil 1\n", qr, sizeof(qr),
+	    &side) == -1);
+	CHECK(covenant_qr_encode(ctx, NULL, qr, sizeof(qr), &side) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	CHECK(covenant_qr_encode(ctx, "vigil 1\n", NULL, sizeof(qr),
+	    &side) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+
+	free(text);
+}
+
+/*
+ * At most 8 cosk pairs wait for their device at a time, each with a
+ * handle of its own. Dropping one makes room for the next.
+ */
+static void
+test_cosk_limit(void)
+{
+	int		idx, other;
+	u_int32_t	handle[COVENANT_COSK_MAX], extra;
+	u_int8_t	pk[COVENANT_COSK_MAX][COVENANT_COSK_PUBLIC_LEN];
+
+	for (idx = 0; idx < COVENANT_COSK_MAX; idx++) {
+		CHECK(covenant_cosk_new(ctx, &handle[idx], pk[idx],
+		    sizeof(pk[idx])) == 0);
+		CHECK(handle[idx] != 0);
+
+		for (other = 0; other < idx; other++) {
+			CHECK(handle[other] != handle[idx]);
+			CHECK(memcmp(pk[other], pk[idx], sizeof(pk[idx])) != 0);
+		}
+	}
+
+	CHECK(covenant_cosk_new(ctx, &extra, pk[0], sizeof(pk[0])) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_COSK_FULL);
+
+	CHECK(covenant_cosk_drop(ctx, handle[3]) == 0);
+	CHECK(covenant_cosk_new(ctx, &handle[3], pk[3], sizeof(pk[3])) == 0);
+
+	for (idx = 0; idx < COVENANT_COSK_MAX; idx++)
+		CHECK(covenant_cosk_drop(ctx, handle[idx]) == 0);
+
+	CHECK(covenant_cosk_drop(ctx, 0) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_COSK);
+	CHECK(covenant_cosk_drop(NULL, handle[0]) == -1);
+	CHECK(covenant_cosk_new(NULL, &extra, pk[0], sizeof(pk[0])) == -1);
+	CHECK(covenant_cosk_new(ctx, NULL, pk[0], sizeof(pk[0])) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+}
+
+/*
+ * The internal KEK of a device is the same for a pair of flocks no
+ * matter which side derives it, and differs for another pair.
+ */
+static void
+test_kek_derive(void)
+{
+	u_int8_t	aa[COVENANT_KEK_LEN];
+	u_int8_t	kek[COVENANT_KEK_LEN];
+	u_int8_t	ab[COVENANT_KEK_LEN], ba[COVENANT_KEK_LEN];
+
+	CHECK(covenant_random_bytes(ctx, kek, sizeof(kek)) == 0);
+
+	covenant_kek_derive(kek, sizeof(kek), TEST_FLOCK, TEST_FLOCK + 0x100,
+	    ab, sizeof(ab));
+	covenant_kek_derive(kek, sizeof(kek), TEST_FLOCK + 0x100, TEST_FLOCK,
+	    ba, sizeof(ba));
+	covenant_kek_derive(kek, sizeof(kek), TEST_FLOCK, TEST_FLOCK,
+	    aa, sizeof(aa));
+
+	CHECK(memcmp(ab, ba, sizeof(ab)) == 0);
+	CHECK(memcmp(ab, aa, sizeof(ab)) != 0);
+	CHECK(memcmp(ab, kek, sizeof(ab)) != 0);
+}
+
+/*
+ * AES-256-GCM against test case 16 of the GCM specification, and a
+ * tag that is off by a bit must not decrypt.
+ */
+static void
+test_cipher_vector(void)
+{
+	struct covenant_cipher	cipher;
+	u_int8_t		key[32];
+	u_int8_t		aad[20];
+	u_int8_t		nonce[12];
+	u_int8_t		tag[16], want_tag[16];
+	u_int8_t		pt[60], ct[60], want_ct[60], out[60];
+
+	test_hex("feffe9928665731c6d6a8f9467308308"
+	    "feffe9928665731c6d6a8f9467308308", key, sizeof(key));
+	test_hex("feedfacedeadbeeffeedfacedeadbeefabaddad2", aad, sizeof(aad));
+	test_hex("cafebabefacedbaddecaf888", nonce, sizeof(nonce));
+	test_hex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a"
+	    "318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39",
+	    pt, sizeof(pt));
+	test_hex("522dc1f099567d07f47f37a32a84427d643a8cdcbfe5c0c97598a2bd25"
+	    "55d1aa8cb08e48590dbb3da7b08b1056828838c5f61e6393ba7a0abcc9f662",
+	    want_ct, sizeof(want_ct));
+	test_hex("76fc6ece0f4e1768cddf8853bb2d551b",
+	    want_tag, sizeof(want_tag));
+
+	covenant_lock();
+
+	memset(&cipher, 0, sizeof(cipher));
+	cipher.ctx = covenant_cipher_setup(key, sizeof(key));
+	cipher.aad = aad;
+	cipher.aad_len = sizeof(aad);
+	cipher.nonce = nonce;
+	cipher.nonce_len = sizeof(nonce);
+	cipher.pt = pt;
+	cipher.ct = ct;
+	cipher.tag = tag;
+	cipher.data_len = sizeof(pt);
+
+	covenant_cipher_encrypt(&cipher);
+	CHECK(memcmp(ct, want_ct, sizeof(ct)) == 0);
+	CHECK(memcmp(tag, want_tag, sizeof(tag)) == 0);
+
+	cipher.pt = out;
+	CHECK(covenant_cipher_decrypt(&cipher) == 0);
+	CHECK(memcmp(out, pt, sizeof(out)) == 0);
+
+	tag[15] ^= 0x01;
+	CHECK(covenant_cipher_decrypt(&cipher) == -1);
+
+	covenant_cipher_cleanup(cipher.ctx);
+	covenant_unlock();
+}
+
+/*
+ * Everything that opens the KEKs refuses another vault key, and a
+ * device that failed to provision keeps its cosk for another try.
+ */
+static void
+test_wrong_vault(const u_int8_t *secret, const u_int8_t *sealed)
+{
+	struct covenant_device	dev;
+	int			side;
+	u_int16_t		expires;
+	u_int8_t		*bundle;
+	u_int32_t		handle, gen;
+	u_int8_t		qr[COVENANT_QR_MAX_LEN];
+	u_int8_t		pk[COVENANT_COSK_PUBLIC_LEN];
+	u_int8_t		other[COVENANT_VAULT_KEY_LEN];
+	char			config[COVENANT_CONFIG_MAX_LEN];
+	u_int8_t		renewed[COVENANT_KEKS_SEALED_LEN];
+
+	memcpy(other, secret, sizeof(other));
+	other[31] ^= 0x01;
+
+	CHECK((bundle = malloc(COVENANT_AMBRY_LEN)) != NULL);
+	CHECK(covenant_ambry_bundle(ctx, other, sizeof(other), sealed,
+	    COVENANT_KEKS_SEALED_LEN, 30, bundle, COVENANT_AMBRY_LEN,
+	    &gen, &expires) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+	free(bundle);
+
+	CHECK(covenant_keks_renew(ctx, other, sizeof(other), sealed,
+	    COVENANT_KEKS_SEALED_LEN, 0x42, renewed, sizeof(renewed)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+
+	CHECK(covenant_cosk_new(ctx, &handle, pk, sizeof(pk)) == 0);
+
+	memset(&dev, 0, sizeof(dev));
+	dev.secret = other;
+	dev.secret_len = sizeof(other);
+	dev.keks = sealed;
+	dev.keks_len = COVENANT_KEKS_SEALED_LEN;
+	dev.cosk = handle;
+	dev.kek = 0x0c;
+	dev.cathedral_secret =
+	    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5";
+	dev.config =
+	    "vigil 1\n"
+	    "instance laptop\n"
+	    "spi 0c\n"
+	    "cathedral_flock 493abf95a07e0c00\n";
+
+	CHECK(covenant_provision(ctx, &dev, qr, sizeof(qr), &side) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+	CHECK(covenant_provision_config(ctx, &dev, config,
+	    sizeof(config)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+
+	dev.secret = secret;
+
+	/* Something that is not hex for the cathedral secret. */
+	dev.cathedral_secret =
+	    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5zz";
+	CHECK(covenant_provision(ctx, &dev, qr, sizeof(qr), &side) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	dev.cathedral_secret =
+	    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5";
+
+	CHECK(covenant_provision(ctx, &dev, NULL, sizeof(qr), &side) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	CHECK(covenant_provision(NULL, &dev, qr, sizeof(qr), &side) == -1);
+
+	/* After all of that the cosk is still there for the device. */
+	CHECK(covenant_provision(ctx, &dev, qr, sizeof(qr), &side) == 0);
+
+	nyfe_mem_zero(other, sizeof(other));
+}
+
+/*
+ * Backups that someone made with the MAC key but not with the KEKs of
+ * the flock, and recipients that are not ours.
+ */
+static void
+test_backup_forged(const u_int8_t *secret, const u_int8_t *sealed)
+{
+	struct covenant_backup_info	bi;
+	u_int8_t			*backup, *copy;
+	u_int8_t			data[COVENANT_KEKS_DATA_LEN];
+	u_int8_t			other[COVENANT_VAULT_KEY_LEN];
+	u_int8_t			root[COVENANT_BACKUP_ROOT_LEN];
+	u_int8_t			restored[COVENANT_KEKS_SEALED_LEN];
+	u_int8_t			bad[COVENANT_BACKUP_RECIPIENT_LEN];
+	u_int8_t			elsewhere[COVENANT_KEKS_SEALED_LEN];
+	u_int8_t			rcpt[COVENANT_BACKUP_RECIPIENT_LEN];
+
+	CHECK((backup = malloc(COVENANT_BACKUP_LEN)) != NULL);
+	CHECK((copy = malloc(COVENANT_BACKUP_LEN)) != NULL);
+
+	covenant_backup_keygen(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    root, sizeof(root), rcpt, sizeof(rcpt));
+	CHECK(covenant_backup_seal(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    rcpt, sizeof(rcpt), sealed, COVENANT_KEKS_SEALED_LEN,
+	    backup, COVENANT_BACKUP_LEN) == 0);
+
+	/* A recipient with another magic or version is not one of ours. */
+	memcpy(bad, rcpt, sizeof(bad));
+	bad[0] = 'X';
+	CHECK(covenant_backup_verify(ctx, root, sizeof(root),
+	    bad, sizeof(bad)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+	CHECK(covenant_backup_seal(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    bad, sizeof(bad), sealed, COVENANT_KEKS_SEALED_LEN,
+	    copy, COVENANT_BACKUP_LEN) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+
+	memcpy(bad, rcpt, sizeof(bad));
+	bad[7] ^= 0x01;
+	CHECK(covenant_backup_verify(ctx, root, sizeof(root),
+	    bad, sizeof(bad)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+
+	/* KEKs sealed under another vault key than the recipient. */
+	CHECK(covenant_random_bytes(ctx, other, sizeof(other)) == 0);
+	covenant_keks_generate(ctx, other, sizeof(other), TEST_FLOCK,
+	    elsewhere, sizeof(elsewhere));
+	CHECK(covenant_backup_seal(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    rcpt, sizeof(rcpt), elsewhere, sizeof(elsewhere),
+	    copy, COVENANT_BACKUP_LEN) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_INTEGRITY);
+
+	/* Opening it on a computer needs the right recovery key too. */
+	root[3] ^= 0x01;
+	CHECK(covenant_backup_open(ctx, root, sizeof(root), backup,
+	    COVENANT_BACKUP_LEN, data, sizeof(data), &bi) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_RECOVERY_KEY);
+	root[3] ^= 0x01;
+
+	memcpy(copy, backup, COVENANT_BACKUP_LEN);
+	copy[7] ^= 0x01;
+	CHECK(covenant_backup_open(ctx, root, sizeof(root), copy,
+	    COVENANT_BACKUP_LEN, data, sizeof(data), &bi) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+
+	/*
+	 * The MAC only proves who made the backup. With a valid MAC the
+	 * KEKs must still decrypt under the key both KEMs agree on, so
+	 * changed KEKs, a changed ML-KEM ciphertext or an x25519 key that
+	 * gives no shared secret are all refused.
+	 */
+	memcpy(copy, backup, COVENANT_BACKUP_LEN);
+	copy[1648 + 100] ^= 0x01;
+	test_backup_remac(root, copy, COVENANT_BACKUP_LEN);
+	CHECK(covenant_backup_restore(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    root, sizeof(root), copy, COVENANT_BACKUP_LEN,
+	    restored, sizeof(restored)) == -1);
+	CHECK(covenant_backup_open(ctx, root, sizeof(root), copy,
+	    COVENANT_BACKUP_LEN, data, sizeof(data), &bi) == -1);
+
+	memcpy(copy, backup, COVENANT_BACKUP_LEN);
+	copy[80 + 100] ^= 0x01;
+	test_backup_remac(root, copy, COVENANT_BACKUP_LEN);
+	CHECK(covenant_backup_restore(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    root, sizeof(root), copy, COVENANT_BACKUP_LEN,
+	    restored, sizeof(restored)) == -1);
+
+	memcpy(copy, backup, COVENANT_BACKUP_LEN);
+	memset(&copy[48], 0, COVENANT_X25519_LEN);
+	test_backup_remac(root, copy, COVENANT_BACKUP_LEN);
+	CHECK(covenant_backup_restore(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    root, sizeof(root), copy, COVENANT_BACKUP_LEN,
+	    restored, sizeof(restored)) == -1);
+
+	/* And the untouched backup with its own MAC redone still opens. */
+	memcpy(copy, backup, COVENANT_BACKUP_LEN);
+	test_backup_remac(root, copy, COVENANT_BACKUP_LEN);
+	CHECK(memcmp(copy, backup, COVENANT_BACKUP_LEN) == 0);
+	CHECK(covenant_backup_restore(ctx, secret, COVENANT_VAULT_KEY_LEN,
+	    root, sizeof(root), copy, COVENANT_BACKUP_LEN,
+	    restored, sizeof(restored)) == 0);
+
+	nyfe_mem_zero(root, sizeof(root));
+	nyfe_mem_zero(data, sizeof(data));
+	nyfe_mem_zero(other, sizeof(other));
+
+	free(backup);
+	free(copy);
+}
+
+/*
+ * Redo the MAC over a backup as docs/backups.md describes it:
+ *
+ *	mac_key = KMAC256(root, "COVENANT.BACKUP.MAC.KEY"), 256-bit
+ *	mac = KMAC256(mac_key, "COVENANT.BACKUP.MAC", backup), 256-bit
+ */
+static void
+test_backup_remac(const u_int8_t *root, u_int8_t *backup, size_t len)
+{
+	struct nyfe_kmac256	kdf;
+	u_int8_t		key[32];
+
+	nyfe_kmac256_init(&kdf, root, COVENANT_BACKUP_ROOT_LEN,
+	    "COVENANT.BACKUP.MAC.KEY", strlen("COVENANT.BACKUP.MAC.KEY"));
+	nyfe_kmac256_final(&kdf, key, sizeof(key));
+
+	nyfe_kmac256_init(&kdf, key, sizeof(key),
+	    "COVENANT.BACKUP.MAC", strlen("COVENANT.BACKUP.MAC"));
+	nyfe_kmac256_update(&kdf, backup, len - 32);
+	nyfe_kmac256_final(&kdf, &backup[len - 32], 32);
+
+	nyfe_mem_zero(key, sizeof(key));
+}
+
+/*
+ * An emergency erase wipes all key material the library knows about.
+ * Nothing can be used afterwards, so it runs in a child.
+ */
+static void
+test_emergency_erase(void)
+{
+	pid_t		pid;
+	size_t		idx;
+	u_int8_t	*key;
+	int		status;
+
+	CHECK(fflush(stdout) == 0);
+	CHECK((pid = fork()) != -1);
+
+	if (pid == 0) {
+		key = covenant_alloc(64);
+		memset(key, 0xaa, 64);
+
+		covenant_emergency_erase();
+
+		for (idx = 0; idx < 64; idx++) {
+			if (key[idx] != 0)
+				exit(1);
+		}
+
+		exit(0);
+	}
+
+	CHECK(waitpid(pid, &status, 0) == pid);
+	CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+/*
+ * Using the library wrong, here renewing KEK 0 which no flock has, is
+ * fatal: it wipes all key material, tells the platform why through
+ * the fatal callback (or on stderr without one) and aborts.
+ */
+static void
+test_fatal(const u_int8_t *secret, const u_int8_t *sealed, int callback)
+{
+	pid_t		pid;
+	ssize_t		ret;
+	size_t		len;
+	char		report[256];
+	int		fds[2], status;
+	u_int8_t	out[COVENANT_KEKS_SEALED_LEN];
+
+	CHECK(pipe(fds) == 0);
+	CHECK(fflush(stdout) == 0);
+	CHECK((pid = fork()) != -1);
+
+	if (pid == 0) {
+		(void)close(fds[0]);
+
+		if (callback) {
+			fatal_fd = fds[1];
+			fatal_key = covenant_alloc(32);
+			memset(fatal_key, 0xaa, 32);
+			covenant_fatal_callback(test_fatal_report);
+		} else {
+			if (dup2(fds[1], STDERR_FILENO) == -1)
+				_exit(1);
+		}
+
+		if (covenant_keks_renew(ctx, secret, COVENANT_VAULT_KEY_LEN,
+		    sealed, COVENANT_KEKS_SEALED_LEN, 0, out, sizeof(out)) == 0)
+			_exit(2);
+		_exit(1);
+	}
+
+	(void)close(fds[1]);
+
+	len = 0;
+
+	for (;;) {
+		ret = read(fds[0], &report[len], sizeof(report) - len - 1);
+		CHECK(ret != -1);
+		if (ret == 0)
+			break;
+		len += (size_t)ret;
+		CHECK(len < sizeof(report) - 1);
+	}
+
+	report[len] = '\0';
+	(void)close(fds[0]);
+
+	CHECK(waitpid(pid, &status, 0) == pid);
+	CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
+
+	if (callback) {
+		CHECK(report[0] == 'w');
+		CHECK(len > 1);
+	} else {
+		CHECK(len > 0);
+	}
+}
+
+/*
+ * The fatal callback in the child, report if the key material was
+ * already wiped and the reason we were given.
+ */
+static void
+test_fatal_report(const char *fmt, va_list args)
+{
+	size_t		idx;
+	int		wiped;
+	char		msg[200];
+
+	wiped = 1;
+
+	for (idx = 0; idx < 32; idx++) {
+		if (fatal_key[idx] != 0)
+			wiped = 0;
+	}
+
+	if (vsnprintf(msg, sizeof(msg), fmt, args) < 0)
+		msg[0] = '\0';
+
+	if (wiped) {
+		if (write(fatal_fd, "w", 1) == -1)
+			_exit(1);
+	} else {
+		if (write(fatal_fd, "-", 1) == -1)
+			_exit(1);
+	}
+	if (write(fatal_fd, msg, strlen(msg)) == -1)
+		_exit(1);
+
+#if defined(COVENANT_COVERAGE)
+	__gcov_dump();
+#endif
+}
+
+/*
+ * Decode the given hex string, which must be exactly len bytes.
+ */
+static void
+test_hex(const char *hex, u_int8_t *out, size_t len)
+{
+	size_t		got;
+
+	CHECK(sodium_hex2bin(out, len, hex, strlen(hex), NULL, &got,
+	    NULL) == 0);
+	CHECK(got == len);
 }
