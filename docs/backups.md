@@ -6,11 +6,17 @@ encrypted to a recovery key that only the user has.
 
 ## The idea
 
-The phone can make backups but can never read them back. It only keeps
+The phone can make backups but can never read them back. It only stores
 the public keys of the recovery key. Opening a backup needs the
 recovery key itself, which the user writes down on paper.
 
 Nothing about backups is stored on the reliquary.
+
+Backups are made on phones only. On Linux the files in
+`~/.config/covenant` are already encrypted and directly accessible, so
+copying that directory is the backup there. A Linux computer can
+import a backup made by a phone, see
+[Importing on Linux](#importing-on-linux).
 
 ## The recovery key
 
@@ -33,7 +39,7 @@ key. The same recovery key always gives the same keys.
 
 ## The recipient
 
-The phone keeps a recipient instead of the recovery key. It holds:
+The phone stores a recipient instead of the recovery key. It holds:
 
 - the ML-KEM-1024 public key,
 - the x25519 public key,
@@ -98,7 +104,7 @@ mac		32
 ```
 
 Restoring a backup brings the signing seed back too, so the device
-names signed before keep verifying.
+names signed before still verify.
 
 Only version 3 is accepted, older versions no longer open.
 
@@ -152,9 +158,9 @@ recovery key does not open is reported as failed. If none of them
 opens, the restore fails as a whole.
 
 When the phone has no recipient yet and at least one flock was
-restored, it takes on the recipient of the recovery key that was used.
-When it already has a different one, the restored flocks are backed up
-again to its own recipient.
+restored, the recipient of the recovery key that was used becomes the
+recipient of the phone. When it already has a different one, the
+restored flocks are backed up again to its own recipient.
 
 ## Checking the recovery key
 
@@ -168,7 +174,19 @@ A lost recovery key cannot be recovered. You make a new one instead.
 Every flock on the phone is then backed up again for the new key,
 replacing the old backups in the folder.
 
-## Restoring on a computer
+## Importing on Linux
+
+The Linux app imports one backup at a time from the Keys tab. The user
+picks the `.rlqb` file and types the recovery key into a GTK dialog,
+then the passphrase. The runner reads the flock from the backup header
+and refuses it when the KEKs of that flock are already on the computer.
+Otherwise the C library opens the backup as described above and seals
+the KEKs under the vault key of the computer. The recovery key is wiped
+right after.
+
+The computer has no recipient and never makes backups of its own.
+
+## Restoring with covenant-restore
 
 `make tools` builds `tools/covenant-restore`. It reads a backup and asks for
 the recovery key without echo on a terminal.
@@ -189,15 +207,7 @@ A backup only holds the KEKs and the signing seed. It does not hold
 the session token, the account key, device names or bundle notes.
 
 Without a backup, losing the phone or removing its screen lock loses
-the KEKs. The flock then needs new KEKs and all of its devices need
+the KEKs. On Linux the same goes for losing the computer without a copy
+of `~/.config/covenant`, or for forgetting the passphrase, as the copy
+is locked with the same passphrase. The flock then needs new KEKs and all of its devices need
 provisioning again.
-
-## Where this lives in the code
-
-- `src/backup.c` makes, checks and opens backups.
-- `tools/covenant-restore.c` restores a backup on a computer.
-- `app/lib/pages/backup.dart` is the backup page.
-- `app/android/app/src/main/kotlin/se/sanctorum/reliquary/BackupFolder.kt`
-  and `app/ios/Runner/ReliquaryPlugin.swift` handle the backup folder.
-- `app/android/app/src/main/kotlin/se/sanctorum/reliquary/MainActivity.kt`
-  and `app/ios/Runner/ReliquaryPlugin.swift` drive backup and restore.

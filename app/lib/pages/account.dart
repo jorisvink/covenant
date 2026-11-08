@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../app.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -111,7 +112,7 @@ class _AccountPageState extends State<AccountPage> {
       title: 'Log out',
       text:
           'This app does not keep your account key, you need it to log in '
-          'again. The KEKs of your flocks stay on this phone.',
+          'again. The KEKs of your flocks stay on this $here.',
       action: 'Log out',
     );
 
@@ -335,9 +336,9 @@ class _AccountKeyPageState extends State<AccountKeyPage> {
           second: Btn(label: 'Done', expand: true, onTap: _finish),
         ),
         children: [
-          const Text(
+          Text(
             'Write this down and keep it somewhere safe, like a password '
-            'manager. You need it to log in again or on another phone.',
+            'manager. You need it to log in again or on another $here.',
             style: Styles.body,
           ),
           Pre(

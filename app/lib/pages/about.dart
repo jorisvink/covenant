@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app.dart';
 import '../core.dart';
+import '../platform.dart';
 import '../theme.dart';
 import '../widgets/marks.dart';
 import '../widgets/ui.dart';
@@ -41,9 +42,9 @@ class AboutPage extends StatelessWidget {
             ],
           ),
         ),
-        const Text(
+        Text(
           'The Key-Encryption-Keys (KEKs) used on your devices are made and '
-          'managed from this phone. The cathedrals only ever see encrypted '
+          'managed from this $here. The cathedrals only ever see encrypted '
           'secrets they cannot decrypt. Devices you provision via Covenant '
           'get the correct Key-Encryption-Key automatically.',
           style: Styles.body,

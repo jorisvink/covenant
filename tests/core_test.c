@@ -54,6 +54,7 @@ static void	test_ambry_reference(const char *, u_int8_t *, size_t);
 static int	test_ambry_unwrap(const u_int8_t *, size_t,
 		    u_int64_t, const u_int8_t *, size_t);
 
+static void	test_key_wrap(void);
 static void	test_remote_words(void);
 
 static void	test_keks_seal(const u_int8_t *, const u_int8_t *);
@@ -114,6 +115,7 @@ main(void)
 	test_provision_config(secret, sealed);
 	test_keks_renew(secret, sealed);
 	test_backup_restore(secret, sealed);
+	test_key_wrap();
 	test_remote_words();
 	test_config_remote(secret, sealed);
 	test_remote_start(secret, sealed);
@@ -128,6 +130,53 @@ main(void)
 	printf("ok\n");
 
 	return (0);
+}
+
+/*
+ * Wrap a vault key under a passphrase and make sure only that passphrase
+ * opens it again.
+ */
+static void
+test_key_wrap(void)
+{
+	size_t		idx;
+	u_int8_t	key[COVENANT_VAULT_KEY_LEN];
+	u_int8_t	out[COVENANT_VAULT_KEY_LEN];
+	u_int8_t	copy[COVENANT_WRAPPED_KEY_LEN];
+	u_int8_t	other[COVENANT_WRAPPED_KEY_LEN];
+	u_int8_t	wrapped[COVENANT_WRAPPED_KEY_LEN];
+
+	CHECK(covenant_random_bytes(ctx, key, sizeof(key)) == 0);
+
+	covenant_key_wrap(ctx, "hunter2", 7, key, sizeof(key),
+	    wrapped, sizeof(wrapped));
+	CHECK(covenant_key_unwrap(ctx, "hunter2", 7, wrapped,
+	    sizeof(wrapped), out, sizeof(out)) == 0);
+	CHECK(memcmp(key, out, sizeof(key)) == 0);
+
+	CHECK(covenant_key_unwrap(ctx, "hunter3", 7, wrapped,
+	    sizeof(wrapped), out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PASSPHRASE);
+
+	/* Flipping a bit anywhere, header included, must be caught. */
+	for (idx = 8; idx < sizeof(wrapped); idx += 19) {
+		memcpy(copy, wrapped, sizeof(copy));
+		copy[idx] ^= 0x80;
+		CHECK(covenant_key_unwrap(ctx, "hunter2", 7, copy,
+		    sizeof(copy), out, sizeof(out)) == -1);
+		CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PASSPHRASE);
+	}
+
+	memcpy(copy, wrapped, sizeof(copy));
+	copy[7] ^= 0x01;
+	CHECK(covenant_key_unwrap(ctx, "hunter2", 7, copy,
+	    sizeof(copy), out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_VERSION);
+
+	/* Two wraps of the same key must never look the same. */
+	covenant_key_wrap(ctx, "hunter2", 7, key, sizeof(key),
+	    other, sizeof(other));
+	CHECK(memcmp(wrapped + 8, other + 8, sizeof(other) - 8) != 0);
 }
 
 /*
@@ -286,6 +335,14 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 	    "cathedral cathedral.reliquary.se:4469\n"
 	    "cathedral_id 5eb2411f\n"
 	    "cathedral_flock 493abf95a07e0c00\n";
+	const char		*gospel =
+	    "vigil 1\n"
+	    "instance laptop\n"
+	    "mode gospel\n"
+	    "spi 0c\n"
+	    "cathedral cathedral.reliquary.se:4469\n"
+	    "cathedral_id 5eb2411f\n"
+	    "cathedral_flock 493abf95a07e0c00\n";
 
 	memset(cs, 0xc5, sizeof(cs));
 	memset(sk, 0x5c, sizeof(sk));
@@ -302,13 +359,22 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 	(void)sodium_bin2hex(kek, sizeof(kek),
 	    keks->kek[0x0c - 1], COVENANT_KEK_LEN);
 
+	/* Only comms gets a signed name. */
+	len = snprintf(want, sizeof(want), "%skek %s\ncathedral_secret %s\n"
+	    "cathedral_cosk %s\n", public, kek, cs_hex, sk_hex);
+	CHECK(len >= 0 && (size_t)len < sizeof(want));
+	CHECK(strcmp(out, want) == 0);
+
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), gospel, out, sizeof(out)) == 0);
+
 	CHECK(crypto_sign_seed_keypair(pk, seed_sk, keks->seed) == 0);
 	(void)sodium_bin2hex(pk_hex, sizeof(pk_hex), pk, sizeof(pk));
 	nyfe_mem_zero(seed_sk, sizeof(seed_sk));
 
 	len = snprintf(want, sizeof(want), "%skek %s\ncathedral_secret %s\n"
 	    "cathedral_cosk %s\nname_pubkey %s\nname_signature ",
-	    public, kek, cs_hex, sk_hex, pk_hex);
+	    gospel, kek, cs_hex, sk_hex, pk_hex);
 	CHECK(len >= 0 && (size_t)len < sizeof(want));
 	CHECK(strncmp(out, want, len) == 0);
 	CHECK(strlen(out) == (size_t)len + (COVENANT_SIGNATURE_LEN * 2) + 1);
@@ -358,6 +424,28 @@ test_config_build(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
 	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
 	    "cathedral_flock 493abf95a07e0d00\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
+
+	/* A tier6 configuration picks its own flock domain, nothing else. */
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nmode liturgy\n"
+	    "tier6 yes\nspi 0c\ncathedral_flock 493abf95a07e0c66\n",
+	    out, sizeof(out)) == 0);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c66\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\ntier6 yes\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0d66\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\ntier6 yes\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c6\n", out, sizeof(out)) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
+	CHECK(covenant_config_build(ctx, keks, 0x0c, cs, sizeof(cs),
+	    sk, sizeof(sk), "vigil 1\ninstance laptop\ntier6 yes\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0cG6\n", out, sizeof(out)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_CONFIG_FLOCK);
 
 	/* Keys smuggled in. */
@@ -805,6 +893,13 @@ test_config_remote(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(strlen(out) == (size_t)len + (COVENANT_SIGNATURE_LEN * 2) + 1);
 
 	test_config_name(keks, out, 0x0c, "far away");
+
+	/* Only comms gets a signed name. */
+	CHECK(covenant_config_remote(ctx, keks, 0x0c, "vigil 1\n"
+	    "instance far away\nmode liturgy\ntier6 yes\nspi 0c\n"
+	    "cathedral_flock 493abf95a07e0c66\n", out, sizeof(out)) == 0);
+	CHECK(strstr(out, "name_pubkey") == NULL);
+	CHECK(strstr(out, "name_signature") == NULL);
 
 	/* The same checks apply as for any other device. */
 	CHECK(covenant_config_remote(ctx, keks, 0x0d, public,

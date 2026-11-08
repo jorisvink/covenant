@@ -1,12 +1,10 @@
-// What the app knows: the session with the reliquary, its flocks and
-// devices, and which flocks have KEKs in the vault on this phone.
-
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
 import 'api.dart';
 import 'core.dart';
+import 'platform.dart';
 
 class AmbryNote {
   AmbryNote(this.json);
@@ -415,6 +413,18 @@ class Reliquary extends ChangeNotifier {
     return r;
   }
 
+  Future<String> importAmbry() async {
+    final flock = await core.importAmbry();
+    await reloadVault();
+    return flock;
+  }
+
+  Future<String> importBackup() async {
+    final flock = await core.importBackup();
+    await reloadVault();
+    return flock;
+  }
+
   Future<void> forget(String flock) async {
     await core.forget(flock);
     await _note(flock, null);
@@ -430,7 +440,7 @@ class Reliquary extends ChangeNotifier {
   }
 
   Future<bool> remindersFirst() async {
-    if (_prefs['reminders'] == true) {
+    if (desktop || _prefs['reminders'] == true) {
       return false;
     }
 

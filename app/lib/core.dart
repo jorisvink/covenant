@@ -1,10 +1,8 @@
-// The bridge to the native side. Kotlin and Swift keep the vault key
-// behind the secure hardware of the phone and hand it to the C core for
-// a single operation, we never get to see a KEK in here.
-
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
+
+import 'platform.dart';
 
 class CoreError implements Exception {
   CoreError(this.code, this.message);
@@ -18,7 +16,7 @@ class CoreError implements Exception {
   String toString() => message;
 }
 
-enum Hardware { strongbox, secureEnclave, tee, software, none }
+enum Hardware { strongbox, secureEnclave, tee, software, passphrase, none }
 
 class Vault {
   Vault(this.json);
@@ -34,6 +32,7 @@ class Vault {
     'secure-enclave' => Hardware.secureEnclave,
     'tee' => Hardware.tee,
     'software' => Hardware.software,
+    'passphrase' => Hardware.passphrase,
     _ => Hardware.none,
   };
 
@@ -42,6 +41,7 @@ class Vault {
     Hardware.secureEnclave => 'Secure Enclave',
     Hardware.tee => 'Secure hardware',
     Hardware.software => 'No secure hardware',
+    Hardware.passphrase => 'Passphrase',
     Hardware.none => 'Not set up yet',
   };
 
@@ -164,11 +164,11 @@ class QrCode {
 }
 
 String _coreError(int code) => switch (code) {
-  1 => 'The phone ran out of memory, try again.',
+  1 => 'The $here ran out of memory, try again.',
   2 => 'Something was not filled in correctly.',
   4 => 'Something went wrong, try again.',
-  5 => 'The KEKs on this phone are damaged and cannot be opened.',
-  6 => 'The KEKs on this phone were saved by a newer version of this app.',
+  5 => 'The KEKs on this $here are damaged and cannot be opened.',
+  6 => 'The KEKs on this $here were saved by a newer version of this app.',
   7 => 'The device settings are not valid.',
   8 => 'The device settings are not valid.',
   9 => 'The device settings are for another flock.',
@@ -179,6 +179,7 @@ String _coreError(int code) => switch (code) {
   14 => 'This recovery key does not open these backups.',
   15 => 'The secret words for the device are gone, start over.',
   16 => 'The device did not answer the way it should, start over.',
+  17 => 'That passphrase does not unlock your KEKs.',
   _ => 'Something went wrong ($code).',
 };
 
@@ -226,6 +227,14 @@ class Core {
   Future<void> forget(String flock) => _call<String>('keksDelete', flock);
 
   Future<void> wipe() => _call<String>('vaultWipe');
+
+  Future<String> importAmbry() async =>
+      await _call<String>('importAmbry') ?? '';
+
+  Future<String> importBackup() async =>
+      await _call<String>('importBackup') ?? '';
+
+  Future<void> passphraseChange() => _call<String>('passphraseChange');
 
   Future<Cosk> cosk() async {
     final r = await _call<Map<Object?, Object?>>('coskNew');
@@ -330,31 +339,101 @@ class Core {
   Future<Restored> backupRestore(Uint8List root) async =>
       Restored(await _call<Map<Object?, Object?>>('backupRestore', root) ?? {});
 
-  Future<void> reminders(List<Map<String, Object>> reminders) =>
-      _call<String>('reminders', reminders);
+  Future<void> reminders(List<Map<String, Object>> reminders) async {
+    if (desktop) {
+      return;
+    }
 
-  Future<void> remindersAllow() => _call<String>('remindersAllow');
+    await _call<String>('reminders', reminders);
+  }
+
+  Future<void> remindersAllow() async {
+    if (desktop) {
+      return;
+    }
+
+    await _call<String>('remindersAllow');
+  }
 
   Future<String?> remindedFlock() async {
+    if (desktop) {
+      return null;
+    }
+
     final flock = await _call<String>('remindedFlock');
     return flock == null || flock.isEmpty ? null : flock;
   }
 
+  static const _sessionFiles = ['api', 'token', 'cathedral', 'natport'];
+
   Future<Map<String, dynamic>?> session() async {
-    final raw = await _call<String>('session');
-    return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+    if (!desktop) {
+      final raw = await _call<String>('session');
+      return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+    }
+
+    final session = <String, dynamic>{};
+
+    for (final name in _sessionFiles) {
+      final value = await _call<String>('fileRead', name);
+      if (value == null) {
+        return null;
+      }
+
+      session[name] = value.trim();
+    }
+
+    return session;
   }
 
-  Future<void> sessionSave(Map<String, dynamic> session) =>
-      _call<String>('sessionSave', jsonEncode(session));
+  Future<void> sessionSave(Map<String, dynamic> session) async {
+    if (!desktop) {
+      await _call<String>('sessionSave', jsonEncode(session));
+      return;
+    }
 
-  Future<void> sessionClear() => _call<String>('sessionClear');
+    for (final name in _sessionFiles) {
+      await _call<String>('fileWrite', {
+        'name': name,
+        'data': '${session[name]}\n',
+      });
+    }
+  }
 
-  Future<Map<String, dynamic>> prefs() async =>
-      jsonDecode(await _call<String>('prefs') ?? '{}') as Map<String, dynamic>;
+  Future<void> sessionClear() async {
+    if (!desktop) {
+      await _call<String>('sessionClear');
+      return;
+    }
 
-  Future<void> prefsSave(Map<String, dynamic> prefs) =>
-      _call<String>('prefsSave', jsonEncode(prefs));
+    for (final name in _sessionFiles) {
+      await _call<String>('fileDelete', name);
+    }
+  }
+
+  Future<Map<String, dynamic>> prefs() async {
+    String? raw;
+
+    if (desktop) {
+      raw = await _call<String>('fileRead', 'prefs');
+    } else {
+      raw = await _call<String>('prefs');
+    }
+
+    return jsonDecode(raw ?? '{}') as Map<String, dynamic>;
+  }
+
+  Future<void> prefsSave(Map<String, dynamic> prefs) async {
+    if (!desktop) {
+      await _call<String>('prefsSave', jsonEncode(prefs));
+      return;
+    }
+
+    await _call<String>('fileWrite', {
+      'name': 'prefs',
+      'data': jsonEncode(prefs),
+    });
+  }
 
   Future<String> version() async => await _call<String>('version') ?? '-';
 }

@@ -11,8 +11,8 @@ key. Registering hands back the account key once. The app shows it and
 does not keep it. Logging in sends the account key to the reliquary and
 gets a session token back.
 
-The session token is what the app keeps. See
-[communication.md](communication.md) for where it is stored.
+The app stores only the session token, see [keys.md](keys.md) for
+where.
 
 ## Flocks
 
@@ -23,9 +23,10 @@ reliquary API.
 A flock has 255 KEK slots, `0x01` up to `0xff`. Every approved device
 gets one of them.
 
-A flock that has approved devices but no KEKs on this phone is managed
+A flock that has approved devices but no KEKs on this device is managed
 elsewhere, for example with `ambry` on a computer. The app shows it but
-refuses to change it.
+refuses to change it. On Linux the KEKs of such a flock can be
+imported, see below.
 
 ## Generating KEKs
 
@@ -35,8 +36,26 @@ random system, with a fresh random state per KEK.
 
 The KEKs are sealed under the vault key right away, see
 [keys.md](keys.md). The sealed KEKs are only stored once the first
-ambry bundle for them was made. When there is a recovery key the KEKs
+ambry bundle for them was made. On a phone with a recovery key the KEKs
 are also backed up, see [backups.md](backups.md).
+
+## Importing KEKs on Linux
+
+On Linux the Keys tab can import the KEKs of a flock from two sources.
+Both refuse a flock that already has KEKs on the computer and leave the
+source files untouched.
+
+- A flock folder made by `ambry generate`. The folder must be named
+  after the flock and hold `kek-data/kek-0x01` up to `kek-0xff`. The
+  C library seals the KEKs with `covenant_keks_import()` and makes a
+  new signing seed for them, as ambry has none.
+- A backup made by a phone, together with its recovery key. The KEKs
+  and the signing seed are restored as they were, see
+  [backups.md](backups.md).
+
+The folder or file is picked with a GTK file chooser and the recovery
+key is typed into a GTK dialog, neither passes through the Flutter
+side.
 
 ## Ambry bundles
 
@@ -61,8 +80,9 @@ A bundle is always 3756730 bytes. It is valid for 1 to 3650 days. The
 app then uploads it to the reliquary.
 
 The app remembers the generation and the expiry of the last bundle per
-flock. Once a bundle is uploaded it schedules a reminder notification at
-10:00, 3 days and 1 day before the bundle expires.
+flock. On a phone it schedules a reminder notification at 10:00, 3 days
+and 1 day before the bundle expires, once a bundle is uploaded. Linux
+has no reminders.
 
 ## Removing a device
 
@@ -79,7 +99,7 @@ renewal the device keeps a KEK that every new bundle is still made for.
 
 ## Replacing a device
 
-A device that is lost, stolen or swapped for a new phone is replaced
+A device that is lost, stolen or swapped for a new device is replaced
 instead of removed. Replacing keeps its device ID, KEK ID and name:
 
 1. The C library replaces the KEK of that KEK ID and the app uploads a
@@ -104,13 +124,3 @@ only ever belongs to that device, see
 Adding a device registers it with the reliquary, approves it and turns
 its keys into a vigil configuration. See
 [communication.md](communication.md) for the steps.
-
-## Where this lives in the code
-
-- `src/keks.c` generates, renews and seals the KEKs.
-- `src/ambry.c` makes the ambry bundles.
-- `app/lib/reliquary.dart` drives the flows and keeps the bundle notes.
-- `app/lib/api.dart` talks to the reliquary.
-- `tests/core_test.c` checks the C library against `ambry` when it is in
-  your PATH. It brings the KEKs of ambry in with `covenant_keks_import()`,
-  which the app itself does not use.

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../api.dart';
 import '../app.dart';
 import '../core.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -65,7 +66,7 @@ class _FlockPageState extends State<FlockPage> {
           ? 'This makes new KEKs for the whole flock. Every device stops '
                 'working until you add it again with a new QR code.'
           : 'The Key-Encryption-Keys (KEKs) of this flock are made on this '
-                'phone and locked in its vault. The cathedrals never see them.',
+                '$here and locked away. The cathedrals never see them.',
       action: had ? 'Reset' : 'Set up',
     );
 
@@ -130,7 +131,7 @@ class _FlockPageState extends State<FlockPage> {
     if (ok) {
       await _run('Removing the KEKs', () async {
         await _r.forget(widget.id);
-        return 'The KEKs are removed from this phone.';
+        return 'The KEKs are removed from this $here.';
       });
     }
   }
@@ -140,7 +141,7 @@ class _FlockPageState extends State<FlockPage> {
       title: 'Delete this flock',
       text:
           'The flock and all of its devices are deleted, and its KEKs are '
-          'removed from this phone. This cannot be undone.',
+          'removed from this $here. This cannot be undone.',
       action: 'Delete',
     );
 
@@ -156,7 +157,7 @@ class _FlockPageState extends State<FlockPage> {
     final name = await ask(
       title: 'Name this flock',
       text:
-          'The name is only kept on this phone, Reliquary and your other '
+          'The name is only kept on this $here, Reliquary and your other '
           'devices never see it. Leave it empty to show the flock ID.',
       action: 'Save',
       initial: _r.flockName(widget.id) ?? '',
@@ -247,11 +248,7 @@ class _FlockPageState extends State<FlockPage> {
                 trailing: Text('${pending.length}', style: Styles.rubric),
               ),
               for (final d in pending)
-                _DeviceCard(
-                  flock: widget.id,
-                  device: d,
-                  manage: !external
-                ),
+                _DeviceCard(flock: widget.id, device: d, manage: !external),
             ],
             GroupLabel(
               'Devices',
@@ -276,7 +273,7 @@ class _FlockPageState extends State<FlockPage> {
               rows: [
                 (
                   'Stored',
-                  keks == null ? 'Not on this phone' : 'On this phone',
+                  keks == null ? 'Not on this $here' : 'On this $here',
                 ),
                 if (ambry != null) ...[
                   ('Valid until', '${date(ambry.expiry)}\n${_left(ambry)}'),
@@ -315,7 +312,7 @@ class _FlockPageState extends State<FlockPage> {
                       ),
                       const Line(),
                       _DangerRow(
-                        label: 'Remove the KEKs from this phone',
+                        label: 'Remove the KEKs from this $here',
                         detail: 'You can no longer send encrypted secrets',
                         onTap: _forget,
                       ),

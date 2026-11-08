@@ -1,6 +1,3 @@
-// The reliquary API, see src/api/api.py in reliquary and the rlq script
-// for what each of these mirrors.
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

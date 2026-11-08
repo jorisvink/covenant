@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../api.dart';
 import '../app.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -30,7 +31,7 @@ class _FlocksPageState extends State<FlocksPage> {
       title: 'Create a flock',
       text:
           'A flock is a private group of up to 255 of your devices that can '
-          'reach each other. Next you set up its KEKs on this phone and add '
+          'reach each other. Next you set up its KEKs on this $here and add '
           'your devices.',
       action: 'Create',
     );
@@ -77,7 +78,7 @@ class _FlocksPageState extends State<FlocksPage> {
           for (final f in r.flocks)
             if (flockState(f.id) == FlockState.external) f,
         ];
-        final here = [
+        final mine = [
           for (final f in r.flocks)
             if (!external.contains(f)) f,
         ];
@@ -131,7 +132,7 @@ class _FlocksPageState extends State<FlocksPage> {
                 ),
               if (r.flocks.isEmpty && r.loading)
                 WorkPanel(text: 'Loading your flocks', progress: r.loaded),
-              ..._list('Managed on this phone', here),
+              ..._list('Managed on this $here', mine),
               ..._list('Managed externally', external),
             ],
           ],

@@ -38,7 +38,8 @@ SRC=	src/covenant.c \
 	src/keks.c \
 	src/provision.c \
 	src/qr.c \
-	src/remote.c
+	src/remote.c \
+	src/wrap.c
 
 NYFE=	nyfe/src/agelas.c \
 	nyfe/src/file.c \
@@ -188,6 +189,16 @@ ios: ios-deps
 	FLUTTER=$(FLUTTER) ./dist-build/ios-app.sh --release $(IOS_FLAGS)
 	@echo "built app/build/ios/iphoneos/Runner.app"
 
+linux:
+	FLUTTER=$(FLUTTER) ./dist-build/linux-app.sh --release
+	@echo "built app/build/linux/x64/release/bundle/covenant"
+
+linux-install:
+	./dist-build/linux-install.sh
+
+linux-uninstall:
+	./dist-build/linux-install.sh uninstall
+
 android-run: android-deps
 	FLUTTER=$(FLUTTER) ./dist-build/android-run.sh $(RUN_FLAGS)
 
@@ -202,9 +213,11 @@ clean: clean-objs
 	    2> /dev/null || true
 	rm -rf app/build app/.dart_tool app/android/app/.cxx
 	rm -rf app/android/.gradle app/ios/Flutter/ephemeral
+	rm -rf app/linux/flutter/ephemeral
 
 clean-objs:
 	rm -rf $(OBJDIR) $(LIB) $(TESTS) $(TOOLS)
 
 .PHONY: all clean clean-objs force deps tests tests-run tools version
-.PHONY: android android-deps android-run ios ios-deps
+.PHONY: android android-deps android-run ios ios-deps linux
+.PHONY: linux-install linux-uninstall

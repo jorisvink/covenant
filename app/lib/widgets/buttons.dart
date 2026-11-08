@@ -4,6 +4,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../platform.dart';
 import '../theme.dart';
 import 'marks.dart';
 
@@ -20,10 +21,17 @@ class Pressable extends StatefulWidget {
 
 class _PressableState extends State<Pressable> {
   bool _pressed = false;
+  bool _hovered = false;
 
   void _set(bool value) {
     if (_pressed != value) {
       setState(() => _pressed = value);
+    }
+  }
+
+  void _hover(bool value) {
+    if (_hovered != value) {
+      setState(() => _hovered = value);
     }
   }
 
@@ -35,18 +43,23 @@ class _PressableState extends State<Pressable> {
       button: true,
       enabled: enabled,
       label: widget.label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => _set(true) : null,
-        onTapUp: enabled ? (_) => _set(false) : null,
-        onTapCancel: enabled ? () => _set(false) : null,
-        onTap: enabled
-            ? () {
-                HapticFeedback.selectionClick();
-                widget.onTap!();
-              }
-            : null,
-        child: widget.builder(context, _pressed),
+      child: MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+        onEnter: enabled ? (_) => _hover(true) : null,
+        onExit: (_) => _hover(false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: enabled ? (_) => _set(true) : null,
+          onTapUp: enabled ? (_) => _set(false) : null,
+          onTapCancel: enabled ? () => _set(false) : null,
+          onTap: enabled
+              ? () {
+                  HapticFeedback.selectionClick();
+                  widget.onTap!();
+                }
+              : null,
+          child: widget.builder(context, _pressed || (enabled && _hovered)),
+        ),
       ),
     );
   }
@@ -76,7 +89,23 @@ class Btn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (desktop && expand) {
+      return Align(alignment: Alignment.centerLeft, child: _build(context));
+    }
+
+    return _build(context);
+  }
+
+  Widget _build(BuildContext context) {
     final enabled = onTap != null && !busy;
+    final wide = expand && !desktop;
+    var height = 52.0;
+
+    if (kind == BtnKind.ghost) {
+      height = 40;
+    } else if (desktop) {
+      height = 42;
+    }
 
     return Pressable(
       onTap: enabled ? onTap : null,
@@ -118,12 +147,13 @@ class Btn extends StatelessWidget {
         return CustomPaint(
           painter: CutPainter(fill: fill, stroke: stroke),
           child: Container(
-            height: kind == BtnKind.ghost ? 40 : 52,
+            height: height,
+            constraints: BoxConstraints(minWidth: desktop ? 120 : 0),
             padding: EdgeInsets.symmetric(
               horizontal: kind == BtnKind.ghost ? 4 : 20,
             ),
             child: Row(
-              mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+              mainAxisSize: wide ? MainAxisSize.max : MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (glyph != null) ...[
@@ -148,6 +178,13 @@ class BtnPair extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (desktop) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [first, const SizedBox(width: 10), second],
+      );
+    }
+
     return Row(
       children: [
         Expanded(child: first),

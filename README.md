@@ -1,7 +1,7 @@
 # Covenant
 
-An ISC licensed iOS and Android app to manage your Reliquary instance
-and provision devices directly from your phone.
+Covenant is a management tool for your flocks and devices on a Reliquary
+instance. It runs under iOS, Android and Linux.
 
 The app works against any Reliquary instance, to setup your own see
 https://github.com/jorisvink/reliquary.
@@ -14,11 +14,7 @@ Covenant allows you to:
 - Manage your flocks.
 - Manage your devices in a flock.
 - Manage KEKs and ambry distributions.
-- Provision Vigil on one phone from your phone.
-- Provision Vigil or a computer remotely in a reasonably secure way.
-
-The way provisioning works is via a QRcode that can be scanned by Vigil
-or imported directly on the same phone via Handover.
+- Provision Vigil (on same phone, via QRcode or remotely).
 
 A remote phone can be provisioned via an on-demand sanctum tunnel
 between Vigil and Covenant. This means the provisioning config
@@ -30,28 +26,11 @@ See docs/communication.md for more information on that.
 
 # Disclaimer
 
-I wrote this project with the help of LLMs. The security critical
-and cryptographic bits and pieces are entirely written by me, while
-all other code has been reviewed before being accepted.
+Some parts of Covenant are written with the help of LLMs.
 
-I rewrote a bunch of code the LLM suggested as well as it was not
-up-to-par with what I consider good code.
-
-I know nothing about app development, I am an old unix neckbeard who
-hacks and does security reviews on COMSEC devices from a dark terminal,
-so this was somewhat of a benchmark on how quicky and correctly I could
-get something like this off the ground. The results are staggering and I
-think LLM-assisted development is the way forward for projects like this.
-
-I will continue to refuse LLM written code for security critical pieces
-of software such as Sanctum and libkyrka. I strongly believe that those
-should still be 100% human driven. Even so, LLMs should always be used
-in the hunt for security bugs, as another tool in your toolbox next
-to your fuzzers.
-
-Building a strong foundation first, and designing things from scratch
-by yourself will allow one to make good use of LLM driven development
-once the basic building blocks are in place.
+The security critical and cryptographic bits and pieces are
+entirely written by me, while all other code has been reviewed
+before being accepted.
 
 # Building
 
@@ -61,6 +40,26 @@ once the basic building blocks are in place.
 $ make android
 $ adb install -r app/build/app/outputs/flutter-apk/app-release.apk
 ```
+
+## Linux
+
+```
+$ make linux
+$ ./app/build/linux/x64/release/bundle/covenant
+```
+
+To install it for your user, with a launcher and icon in GNOME:
+
+```
+$ make linux
+$ make linux-install
+```
+
+This puts the app under ~/.local/lib/covenant, a covenant symlink in
+~/.local/bin and the desktop entry and icon under ~/.local/share. Set
+PREFIX to install somewhere else, make linux-uninstall removes it again.
+
+The linux version stores things under $HOME/.config/covenant.
 
 ## iOS
 

@@ -2,13 +2,27 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+import '../platform.dart';
 import '../theme.dart';
 import 'buttons.dart';
 import 'marks.dart';
 import 'net_data.dart';
 
-double tabBarSpace(BuildContext context) =>
-    Metrics.tabBar + MediaQuery.paddingOf(context).bottom + 24;
+double tabBarSpace(BuildContext context) {
+  if (desktop) {
+    return 40;
+  }
+
+  return Metrics.tabBar + MediaQuery.paddingOf(context).bottom + 24;
+}
+
+double pageInset(double width) {
+  if (!desktop) {
+    return 0;
+  }
+
+  return math.max(14, (width - 760) / 2 - Metrics.edge);
+}
 
 class DotGrid extends StatelessWidget {
   const DotGrid({super.key, required this.child});
@@ -42,11 +56,18 @@ class _DotsPainter extends CustomPainter {
 }
 
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, this.actions = const [], this.glow = false});
+  const TopBar({
+    super.key,
+    this.actions = const [],
+    this.glow = false,
+    this.inset = 0,
+  });
 
   final List<Widget> actions;
 
   final bool glow;
+
+  final double inset;
 
   @override
   Widget build(BuildContext context) {
@@ -54,13 +75,15 @@ class TopBar extends StatelessWidget {
       height: 56,
       child: Row(
         children: [
-          const SizedBox(width: Metrics.edge),
-          WordmarkSquare(glow: glow),
-          const SizedBox(width: 12),
-          Text('COVENANT', style: Styles.wordmark),
+          SizedBox(width: Metrics.edge + inset),
+          if (!desktop) ...[
+            WordmarkSquare(glow: glow),
+            const SizedBox(width: 12),
+            Text('COVENANT', style: Styles.wordmark),
+          ],
           const Spacer(),
           ...actions,
-          const SizedBox(width: Metrics.edge - 10),
+          SizedBox(width: Metrics.edge - 10 + inset),
         ],
       ),
     );
@@ -145,15 +168,26 @@ class TabPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          _build(context, pageInset(constraints.maxWidth)),
+    );
+  }
+
+  Widget _build(BuildContext context, double inset) {
     return SafeArea(
       bottom: false,
       child: Column(
         children: [
-          TopBar(actions: actions, glow: glow),
+          TopBar(actions: actions, glow: glow, inset: inset),
           const Line(),
           Expanded(
             child: ListView(
-              padding: EdgeInsets.only(bottom: tabBarSpace(context)),
+              padding: EdgeInsets.only(
+                left: inset,
+                right: inset,
+                bottom: tabBarSpace(context),
+              ),
               children: [
                 PageTitle(rubric: rubric, title: title, index: index),
                 for (final child in children)
@@ -193,6 +227,13 @@ class PushedPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          _build(context, pageInset(constraints.maxWidth)),
+    );
+  }
+
+  Widget _build(BuildContext context, double side) {
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     final inset = keyboard > 0 ? 0.0 : MediaQuery.paddingOf(context).bottom;
 
@@ -207,7 +248,7 @@ class PushedPage extends StatelessWidget {
                 height: 56,
                 child: Row(
                   children: [
-                    const SizedBox(width: Metrics.edge - 12),
+                    SizedBox(width: Metrics.edge - 12 + side),
                     GlyphBtn(
                       GlyphKind.back,
                       label: 'Back',
@@ -232,7 +273,7 @@ class PushedPage extends StatelessWidget {
                       ),
                     ),
                     ...actions,
-                    const SizedBox(width: Metrics.edge - 10),
+                    SizedBox(width: Metrics.edge - 10 + side),
                   ],
                 ),
               ),
@@ -240,9 +281,9 @@ class PushedPage extends StatelessWidget {
               Expanded(
                 child: ListView(
                   padding: EdgeInsets.fromLTRB(
+                    Metrics.edge + side,
                     Metrics.edge,
-                    Metrics.edge,
-                    Metrics.edge,
+                    Metrics.edge + side,
                     bottom == null ? inset + 24 : 24,
                   ),
                   children: [
@@ -261,9 +302,9 @@ class PushedPage extends StatelessWidget {
                     border: Border(top: BorderSide(color: Palette.line)),
                   ),
                   padding: EdgeInsets.fromLTRB(
-                    Metrics.edge,
+                    Metrics.edge + side,
                     14,
-                    Metrics.edge,
+                    Metrics.edge + side,
                     inset + 14,
                   ),
                   child: bottom,

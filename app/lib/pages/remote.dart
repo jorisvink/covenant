@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import '../api.dart';
 import '../app.dart';
 import '../core.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -419,10 +420,10 @@ class _RemotePageState extends State<RemotePage> {
             ),
           ],
           if (_at == _Step.send && _failed == null)
-            const Notice(
+            Notice(
               text:
                   'It can take up to a minute before Reliquary lets the '
-                  'device and this phone reach each other.',
+                  'device and this $here reach each other.',
             ),
         ],
       ),

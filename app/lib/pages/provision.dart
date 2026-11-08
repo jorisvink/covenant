@@ -50,7 +50,8 @@ Future<void> addDevice(String flock, {Device? replace}) async {
         (Where.remote, 'Phone far away', 'Type secret words into Vigil'),
         (Where.computer, 'Computer', 'Type secret words into the cephas tool'),
       ],
-      if (here) (Where.here, 'This phone', 'Provision the Vigil app on this phone'),
+      if (here)
+        (Where.here, 'This phone', 'Provision the Vigil app on this phone'),
     ],
   );
 
@@ -121,6 +122,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
   final _prefix = TextEditingController(text: '172.31.0.0');
   final _group = TextEditingController();
   final _mtu = TextEditingController();
+  final _domain = TextEditingController(text: '66');
 
   Mode _mode = Mode.cathedral;
   bool _advanced = false;
@@ -206,6 +208,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
       _prefix,
       _group,
       _mtu,
+      _domain,
     ]) {
       c.dispose();
     }
@@ -248,6 +251,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
     if (_mode == Mode.liturgy && !_isIp(_prefix.text.trim())) {
       return 'Write the network prefix like 172.31.0.0.';
+    }
+
+    if (_mode == Mode.tier6 &&
+        !RegExp(r'^[0-9a-fA-F]{2}$').hasMatch(_domain.text.trim())) {
+      return 'The flock domain is two digits or letters a to f, like 66.';
     }
 
     if (_mode == Mode.tier6 &&
@@ -335,12 +343,15 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
     final cathedral = _cathedral!;
     final port = int.parse(cathedral.split(':').last);
+    final flock = _mode == Mode.tier6
+        ? widget.flock.substring(0, 14) + _domain.text.trim().toLowerCase()
+        : widget.flock;
 
     out
       ..writeln('spi $spi')
       ..writeln('cathedral $cathedral')
       ..writeln('cathedral_id $device')
-      ..writeln('cathedral_flock ${widget.flock}');
+      ..writeln('cathedral_flock $flock');
 
     final natport = _r.session?.natport;
     if (natport != null && natport != port + 1) {
@@ -872,6 +883,19 @@ class _ProvisionPageState extends State<ProvisionPage> {
         ];
       case Mode.tier6:
         return [
+          GroupLabel('Flock domain', index: next()),
+          Field(
+            controller: _domain,
+            hint: '66',
+            allow: RegExp(r'[0-9a-fA-F]'),
+            maxLength: 2,
+          ),
+          const Text(
+            'The tier6 network the device joins, the last two digits of '
+            'the flock. Every device in the same tier6 network uses the '
+            'same domain, tier6 uses 66.',
+            style: Styles.detail,
+          ),
           GroupLabel('Your tunnel address', index: next()),
           Field(
             controller: _tunnel,

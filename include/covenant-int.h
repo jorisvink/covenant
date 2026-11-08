@@ -129,6 +129,23 @@ struct covenant_keks_head {
 } __attribute__((packed));
 
 /*
+ * The vault key wrapped under a passphrase, for platforms without secure
+ * hardware. The header is the AAD, see src/wrap.c.
+ */
+#define COVENANT_WRAP_MAGIC		"COVW"
+#define COVENANT_WRAP_VERSION		1
+#define COVENANT_WRAP_KDF_LABEL		"COVENANT.WRAP.KEY"
+#define COVENANT_WRAP_PASS_LABEL	"COVENANT.WRAP.PASSPHRASE"
+
+struct covenant_wrap_head {
+	u_int8_t	magic[4];
+	u_int32_t	version;
+	u_int8_t	salt[NYFE_KEY_FILE_SALT_LEN];
+	u_int8_t	nonce[SANCTUM_NONCE_LENGTH];
+	u_int8_t	reserved[4];
+} __attribute__((packed));
+
+/*
  * ML-KEM-1024 and x25519 sizes.
  */
 #define COVENANT_X25519_LEN		32

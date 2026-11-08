@@ -78,6 +78,9 @@ extern "C" {
     (1648 + (COVENANT_KEK_COUNT * COVENANT_KEK_LEN) + \
     COVENANT_SIGN_SEED_LEN + 16 + 32)
 
+/* The length of the vault key wrapped under a passphrase. */
+#define COVENANT_WRAPPED_KEY_LEN	(56 + COVENANT_VAULT_KEY_LEN + 16)
+
 /* The number of words that tell a remote device where to find us. */
 #define COVENANT_ROUTE_WORDS		13
 
@@ -114,6 +117,7 @@ extern "C" {
 #define COVENANT_ERROR_RECOVERY_KEY	14
 #define COVENANT_ERROR_NO_REMOTE	15
 #define COVENANT_ERROR_REMOTE		16
+#define COVENANT_ERROR_PASSPHRASE	17
 
 /*
  * What we know about sealed KEKs without unsealing them.
@@ -247,6 +251,11 @@ int	covenant_backup_open(COVENANT *, const void *, size_t,
 	    const void *, size_t, void *, size_t,
 	    struct covenant_backup_info *);
 #endif
+
+int	covenant_key_unwrap(COVENANT *, const void *, size_t,
+	    const void *, size_t, void *, size_t);
+void	covenant_key_wrap(COVENANT *, const void *, size_t,
+	    const void *, size_t, void *, size_t);
 
 int	covenant_cosk_drop(COVENANT *, u_int32_t);
 int	covenant_cosk_new(COVENANT *, u_int32_t *, void *, size_t);

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app.dart';
 import '../core.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -19,7 +20,7 @@ class KeysPage extends StatelessWidget {
     final ok = await confirm(
       title: 'Wipe all KEKs',
       text:
-          'Every KEK on this phone is destroyed. Your devices keep working '
+          'Every KEK on this $here is destroyed. Your devices keep working '
           'until their encrypted secrets expire, after that each flock has '
           'to be set up again. This cannot be undone.',
       action: 'Wipe',
@@ -34,6 +35,30 @@ class KeysPage extends StatelessWidget {
       notify('All KEKs are wiped.', warn: false);
     } on CoreError catch (e) {
       notify(e.message);
+    }
+  }
+
+  Future<void> _import(Future<String> Function() work) async {
+    final r = Reliquary.instance;
+
+    try {
+      final flock = await wait('Importing the KEKs', work);
+      notify('The KEKs of ${r.flockLabel(flock)} are imported.', warn: false);
+    } on CoreError catch (e) {
+      if (!e.cancelled) {
+        notify(e.message);
+      }
+    }
+  }
+
+  Future<void> _passphrase() async {
+    try {
+      await wait('Changing the passphrase', Core.instance.passphraseChange);
+      notify('Your passphrase is changed.', warn: false);
+    } on CoreError catch (e) {
+      if (!e.cancelled) {
+        notify(e.message);
+      }
     }
   }
 
@@ -73,7 +98,7 @@ class KeysPage extends StatelessWidget {
                             : Liveness.online,
                       ),
                       const SizedBox(width: 10),
-                      const Rubric(text: 'Vault'),
+                      Rubric(text: desktop ? 'Protection' : 'Vault'),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -111,7 +136,7 @@ class KeysPage extends StatelessWidget {
               trailing: Text('${flocks.length}', style: Styles.rubric),
             ),
             if (flocks.isEmpty)
-              const Notice(text: 'No flocks with KEKs on this phone yet')
+              Notice(text: 'No flocks with KEKs on this $here yet')
             else ...[
               if (r.session == null)
                 const Notice(text: 'Log in to manage these flocks.'),
@@ -130,7 +155,35 @@ class KeysPage extends StatelessWidget {
                 ],
               ),
             ],
-            if (vault != null) ...backupSection(vault),
+            if (vault != null && !desktop) ...backupSection(vault),
+            if (desktop) ...[
+              const GroupLabel('Import KEKs', index: 2),
+              LinkList(
+                rows: [
+                  LinkRow(
+                    'From ambry',
+                    () => _import(r.importAmbry),
+                    detail: 'The flock folder made by ambry generate',
+                  ),
+                  LinkRow(
+                    'From a phone backup',
+                    () => _import(r.importBackup),
+                    detail: 'A .rlqb backup and its recovery key',
+                  ),
+                ],
+              ),
+              if (vault?.ready ?? false) ...[
+                const GroupLabel('Passphrase', index: 3),
+                LinkList(
+                  rows: [
+                    LinkRow(
+                      'Change passphrase',
+                      _passphrase,
+                    ),
+                  ],
+                ),
+              ],
+            ],
             if (vault?.ready ?? false) ...[
               const SizedBox(height: 4),
               Btn(
@@ -156,6 +209,20 @@ class KeysPage extends StatelessWidget {
   String _explain(Vault? vault) {
     if (vault == null) {
       return '';
+    }
+
+    if (desktop && !vault.ready) {
+      return 'The Key-Encryption-Keys (KEKs) of your flocks are kept in '
+          '~/.config/covenant, encrypted under a key that is locked with '
+          'your passphrase. You choose the passphrase the first time you '
+          'set up a flock, it cannot be recovered.';
+    }
+
+    if (desktop) {
+      return 'The Key-Encryption-Keys (KEKs) of your flocks are kept in '
+          '~/.config/covenant, encrypted under a key that is locked with '
+          'your passphrase. Every use asks for it. To back up your KEKs, '
+          'copy that folder somewhere safe.';
     }
 
     if (!vault.ready) {

@@ -35,6 +35,7 @@ These are the calls the app makes, and what goes in them.
 | `device/list/<flock>` | token | the devices of the flock |
 | `device/<flock>/create` | the cosk public key | device id, cathedral secret |
 | `device/<flock>/<id>/approve` | token | the KEK id of the device |
+| `device/<flock>/<id>/replace` | token | device id, cathedral secret |
 | `device/<flock>/<id>/delete` | token | |
 | `ambry/<flock>` | the ambry bundle | |
 
@@ -60,8 +61,8 @@ Adding a device goes through these steps:
    everything except the keys.
 5. The user authenticates and the C library unseals the KEKs.
 6. The C library checks the public part and adds the keys.
-7. The result goes into a QR code, or straight to Vigil on the same
-   phone.
+7. The result goes into a QR code, or on a phone straight to Vigil on
+   the same phone.
 
 The C library keeps at most 8 cosk pairs waiting at a time. A cosk pair
 is wiped once its device is provisioned.
@@ -73,10 +74,15 @@ that:
 
 - it is at most 1024 bytes of printable ASCII,
 - it starts with `vigil 1`,
+- every line is exactly `option value`, with a single space between
+  them and none at the end, so no option can hide behind whitespace
+  that vigil would skip,
 - it has no `kek`, `secret`, `cathedral_secret`, `cathedral_cosk`,
   `name_pubkey` or `name_signature` line,
 - it has exactly one `cathedral_flock` line, and it names the flock of
-  the KEKs,
+  the KEKs. A configuration with `tier6 yes` may pick its own flock
+  domain, the lowest 8 bits, as all devices of one tier6 network share
+  a domain (66 by default in the app),
 - it has exactly one `spi` line, and it starts with the KEK id,
 - it has exactly one `instance` line, with a name vigil accepts: 1 to
   63 letters, digits, spaces, `.`, `-` or `_`.
@@ -87,14 +93,18 @@ It then appends these lines, all in hex:
 - `cathedral_secret`, from the reliquary,
 - `cathedral_cosk`, the secret half of the cosk,
 - `name_pubkey`, the public key the flock signs device names with,
-- `name_signature`, the signature over the name of the device.
+  only for `mode gospel`,
+- `name_signature`, the signature over the name of the device, only for
+  `mode gospel`.
 
 ## Signed device names
 
 Every flock has an ed25519 key to sign the names of its devices with.
-Its seed is sealed together with the KEKs and is in the backups, so a
-restore keeps it. The name of a device is its `instance`, the C library
-signs:
+Its seed is sealed together with the KEKs and is part of the backups,
+so a restored flock signs with the same key as before. KEKs imported
+from ambry on Linux get a new seed. Names are only signed for comms
+configurations, those with `mode gospel`. The name of a device is its
+`instance`, the C library signs:
 
 ```
 m = "COVENANT.NAME" || flock || kek || len(name) || name
@@ -104,7 +114,7 @@ The flock is 64-bit big endian, the KEK id and the length are a single
 byte.
 
 Vigil sends its name and the signature to the devices it chats with.
-The receiver does not take the flock or the KEK id from the sender. It
+The receiver does not trust a flock or KEK id from the sender. It
 uses the flock of its own configuration and the KEK id of the tunnel
 the name arrived on, and checks the signature with its own `name_pubkey`.
 A device therefore cannot pick or change its name at runtime, and it
@@ -133,7 +143,7 @@ On Android release builds screenshots of the QR code are blocked.
 ## Handing a device to Vigil
 
 When Vigil is installed on the same phone, the configuration can go to
-it directly instead of through a QR code.
+it directly instead of through a QR code. Linux has no handover.
 
 On Android the app calls the content provider
 `se.sanctorum.vigil.import` with the configuration. Vigil must answer
@@ -147,24 +157,32 @@ whenever the app starts.
 
 ## Between the interface and the platform
 
-The Flutter side talks to Kotlin or Swift over one method channel,
-`se.sanctorum.reliquary/core`. Calls that need the vault key ask the
-user to authenticate on the platform side. The Flutter side never gets
-the vault key or a KEK back.
+The Flutter side talks to Kotlin, Swift or the C runner on Linux over
+one method channel, `se.sanctorum.reliquary/core`. Calls that need the
+vault key ask the user to authenticate on the platform side, or on
+Linux for the passphrase. The Flutter side never gets the vault key or
+a KEK back.
 
-The Flutter side does handle the recovery key. It gets it once when a
-recovery key is made, and it sends it when the user types it in to
-check or restore. See [backups.md](backups.md).
+On a phone the Flutter side does handle the recovery key. It gets it
+once when a recovery key is made, and it sends it when the user types
+it in to check or restore. See [backups.md](backups.md). On Linux the
+passphrase and the recovery key are typed into GTK dialogs of the
+runner and never reach the Flutter side.
+
+On Linux the runner also stores the session and the app settings as
+plain files, the Flutter side reads and writes them by name through
+the channel. Only a fixed set of names is accepted, see
+[keys.md](keys.md).
 
 ## Adding a remote device
 
-A device that cannot scan a QR code, or is not near the phone, gets
-its keys over a sanctum tunnel instead, set up the way cephas sets it
-up. The tunnel needs both ends in the flock, so the app joins the flock
-for the length of the hand over:
+A device that cannot scan a QR code, or is not nearby, gets its keys
+over a sanctum tunnel instead, set up the way cephas sets it up. The
+tunnel needs both ends in the flock, so the app joins the flock for the
+length of the hand over:
 
-1. The app makes a cosk, registers it and approves it. This takes a
-   KEK ID that never leaves the phone, so it needs no renewal.
+1. The app makes a cosk, registers it and approves it. The KEK ID it
+   is given never leaves the app, so it needs no renewal afterwards.
 2. The app picks the KEK ID Reliquary hands out next, the lowest one
    that is free, and the C library makes the secret words for the device.
 3. The device types in the secret words, joins the flock at Reliquary with a
@@ -213,14 +231,3 @@ before the device does gets its keys, the same as someone who sees the
 QR code. In that case the real device joins second and the app stops,
 so it does not go unnoticed. Only give the secret words to the person at the
 device, best over a call.
-
-## Where this lives in the code
-
-- `app/lib/api.dart` is the reliquary API client.
-- `app/lib/pages/provision.dart` adds a device.
-- `src/provision.c` checks the configuration and adds the keys.
-- `src/qr.c` makes the QR code.
-- `src/remote.c` makes the words and runs the tunnel to a remote device,
-  `app/lib/pages/remote.dart` drives it.
-- `app/android/app/src/main/kotlin/se/sanctorum/reliquary/Handoff.kt`
-  and `app/ios/Runner/ReliquaryPlugin.swift` hand devices to Vigil.

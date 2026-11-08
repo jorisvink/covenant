@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'core.dart';
@@ -9,6 +10,7 @@ import 'pages/account.dart';
 import 'pages/flock.dart';
 import 'pages/flocks.dart';
 import 'pages/keys.dart';
+import 'platform.dart';
 import 'reliquary.dart';
 import 'theme.dart';
 import 'widgets/buttons.dart';
@@ -35,17 +37,17 @@ class ReliquaryApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Covenant',
-      navigatorKey: navigatorKey,
+      navigatorKey: desktop ? null : navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: _theme(),
       builder: (context, child) => Material(
         type: MaterialType.transparency,
         child: DefaultTextStyle(
           style: Styles.body,
-          child: _Veil(child: child!),
+          child: desktop ? child! : _Veil(child: child!),
         ),
       ),
-      home: const Shell(),
+      home: desktop ? const DesktopShell() : const Shell(),
     );
   }
 
@@ -183,23 +185,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         valueListenable: currentTab,
         builder: (context, tab, _) => Stack(
           children: [
-            Positioned.fill(
-              child: IndexedStack(
-                index: tab.index,
-                children: [
-                  for (final t in NavTab.values)
-                    TickerMode(
-                      enabled: t == tab,
-                      child: switch (t) {
-                        NavTab.flocks => const FlocksPage(),
-                        NavTab.keys => const KeysPage(),
-                        NavTab.account => const AccountPage(),
-                        NavTab.about => const AboutPage(),
-                      },
-                    ),
-                ],
-              ),
-            ),
+            const Positioned.fill(child: _Tabs()),
             Positioned(
               left: 0,
               right: 0,
@@ -227,6 +213,166 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _Tabs extends StatelessWidget {
+  const _Tabs();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<NavTab>(
+      valueListenable: currentTab,
+      builder: (context, tab, _) => IndexedStack(
+        index: tab.index,
+        children: [
+          for (final t in NavTab.values)
+            TickerMode(
+              enabled: t == tab,
+              child: switch (t) {
+                NavTab.flocks => const FlocksPage(),
+                NavTab.keys => const KeysPage(),
+                NavTab.account => const AccountPage(),
+                NavTab.about => const AboutPage(),
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class DesktopShell extends StatefulWidget {
+  const DesktopShell({super.key});
+
+  @override
+  State<DesktopShell> createState() => _DesktopShellState();
+}
+
+class _DesktopShellState extends State<DesktopShell> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(Reliquary.instance.start());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DotGrid(
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              navigatorKey.currentState?.maybePop(),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _Sidebar(),
+              const ColoredBox(color: Palette.line, child: SizedBox(width: 1)),
+              Expanded(
+                child: Navigator(
+                  key: navigatorKey,
+                  onGenerateInitialRoutes: (_, _) => [route(const _Tabs())],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Sidebar extends StatelessWidget {
+  const _Sidebar();
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Palette.bg2,
+      child: SizedBox(
+        width: 220,
+        child: ValueListenableBuilder<NavTab>(
+          valueListenable: currentTab,
+          builder: (context, current, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 56,
+                child: Row(
+                  children: [
+                    const SizedBox(width: Metrics.edge + 4),
+                    const WordmarkSquare(),
+                    const SizedBox(width: 12),
+                    Text('COVENANT', style: Styles.wordmark),
+                  ],
+                ),
+              ),
+              const Line(),
+              const SizedBox(height: 14),
+              for (final tab in NavTab.values)
+                _SideItem(
+                  label: _tabs[tab.index].$1,
+                  glyph: _tabs[tab.index].$2,
+                  active: tab == current,
+                  onTap: () => goTab(tab),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SideItem extends StatelessWidget {
+  const _SideItem({
+    required this.label,
+    required this.glyph,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final GlyphKind glyph;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      label: label,
+      builder: (context, pressed) {
+        final color = active || pressed ? Palette.amber : Palette.dim;
+
+        return Container(
+          height: 40,
+          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          color: active ? Palette.amberWash : const Color(0x00000000),
+          child: Row(
+            children: [
+              Container(
+                width: 2,
+                color: active ? Palette.amber : const Color(0x00000000),
+              ),
+              const SizedBox(width: 14),
+              Glyph(glyph, size: 18, color: color),
+              const SizedBox(width: 12),
+              Text(
+                label.toUpperCase(),
+                style: Styles.tab.copyWith(
+                  fontSize: 12,
+                  color: active ? Palette.fg : color,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -378,9 +524,10 @@ void notify(String message, {bool warn = true}) {
 
   entry = OverlayEntry(
     builder: (context) => Positioned(
-      left: Metrics.edge,
-      right: Metrics.edge,
+      left: desktop ? null : Metrics.edge,
+      right: desktop ? 24 : Metrics.edge,
       top: MediaQuery.paddingOf(context).top + Metrics.edge,
+      width: desktop ? 420 : null,
       child: IgnorePointer(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: 1),
@@ -428,7 +575,10 @@ void notify(String message, {bool warn = true}) {
 /// Run an operation the user has to wait for. The app is covered with a
 /// work panel until it is done so nothing else can be started meanwhile.
 Future<T> wait<T>(String text, Future<T> Function() work) async {
-  final navigator = navigatorKey.currentState!;
+  final navigator = Navigator.of(
+    navigatorKey.currentContext!,
+    rootNavigator: true,
+  );
 
   FocusManager.instance.primaryFocus?.unfocus();
   _toast?.remove();
@@ -495,13 +645,9 @@ Future<bool> confirm({
 
   FocusManager.instance.primaryFocus?.unfocus();
 
-  final result = await showModalBottomSheet<bool>(
-    context: context,
-    backgroundColor: const Color(0x00000000),
-    barrierColor: const Color(0xcc0b0c0e),
-    elevation: 0,
-    isScrollControlled: true,
-    builder: (context) => CustomPaint(
+  final result = await _sheet<bool>(
+    context,
+    (context) => CustomPaint(
       painter: const CutPainter(fill: Palette.bg2, stroke: Palette.line2),
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -514,10 +660,7 @@ Future<bool> confirm({
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(width: 32, height: 3, color: Palette.amber),
-            ),
-            const SizedBox(height: 20),
+            ..._grabber(),
             Row(
               children: [
                 const RubricCross(fill: Palette.bg2),
@@ -567,13 +710,9 @@ Future<String?> ask({
 
   final controller = TextEditingController(text: initial);
 
-  final result = await showModalBottomSheet<String>(
-    context: context,
-    backgroundColor: const Color(0x00000000),
-    barrierColor: const Color(0xcc0b0c0e),
-    elevation: 0,
-    isScrollControlled: true,
-    builder: (context) => Padding(
+  final result = await _sheet<String>(
+    context,
+    (context) => Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: CustomPaint(
         painter: const CutPainter(fill: Palette.bg2, stroke: Palette.line2),
@@ -588,10 +727,7 @@ Future<String?> ask({
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(width: 32, height: 3, color: Palette.amber),
-              ),
-              const SizedBox(height: 20),
+              ..._grabber(),
               Row(
                 children: [
                   const RubricCross(fill: Palette.bg2),
@@ -646,13 +782,9 @@ Future<T?> choose<T>({
 
   FocusManager.instance.primaryFocus?.unfocus();
 
-  return showModalBottomSheet<T>(
-    context: context,
-    backgroundColor: const Color(0x00000000),
-    barrierColor: const Color(0xcc0b0c0e),
-    elevation: 0,
-    isScrollControlled: true,
-    builder: (context) => CustomPaint(
+  return _sheet<T>(
+    context,
+    (context) => CustomPaint(
       painter: const CutPainter(fill: Palette.bg2, stroke: Palette.line2),
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -665,10 +797,7 @@ Future<T?> choose<T>({
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(width: 32, height: 3, color: Palette.amber),
-            ),
-            const SizedBox(height: 20),
+            ..._grabber(),
             Row(
               children: [
                 const RubricCross(fill: Palette.bg2),
@@ -699,6 +828,44 @@ Future<T?> choose<T>({
       ),
     ),
   );
+}
+
+Future<T?> _sheet<T>(BuildContext context, WidgetBuilder builder) {
+  if (desktop) {
+    return showDialog<T>(
+      context: context,
+      barrierColor: const Color(0xcc0b0c0e),
+      builder: (context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: builder(context),
+          ),
+        ),
+      ),
+    );
+  }
+
+  return showModalBottomSheet<T>(
+    context: context,
+    backgroundColor: const Color(0x00000000),
+    barrierColor: const Color(0xcc0b0c0e),
+    elevation: 0,
+    isScrollControlled: true,
+    builder: builder,
+  );
+}
+
+List<Widget> _grabber() {
+  if (desktop) {
+    return const [SizedBox(height: 10)];
+  }
+
+  return [
+    Center(child: Container(width: 32, height: 3, color: Palette.amber)),
+    const SizedBox(height: 20),
+  ];
 }
 
 Future<int?> chooseDays() => choose<int>(

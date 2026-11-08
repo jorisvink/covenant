@@ -76,6 +76,7 @@ add_library(covenant SHARED
 	${RELIQUARY_ROOT}/src/provision.c
 	${RELIQUARY_ROOT}/src/qr.c
 	${RELIQUARY_ROOT}/src/remote.c
+	${RELIQUARY_ROOT}/src/wrap.c
 	${RELIQUARY_ROOT}/src/platform_android.c
 	${RELIQUARY_ROOT}/obj/version.c)
 

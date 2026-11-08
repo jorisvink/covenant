@@ -32,6 +32,7 @@
 #define CONFIG_HEX_MAX		((SANCTUM_ED25519_SIGN_SECRET_LENGTH * 2) + 1)
 
 static int	provision_name_valid(const char *);
+static int	provision_flock_check(const char *, const char *, int);
 static void	provision_hex_encode(const u_int8_t *, size_t, char *, size_t);
 static int	provision_config_done(struct covenant *,
 		    const struct covenant_buf *, char *, size_t);
@@ -42,7 +43,7 @@ static void	provision_config_kek(struct covenant_buf *,
 static void	provision_config_name(struct covenant_buf *,
 		    const struct covenant_keks *, u_int8_t, const char *);
 static int	provision_config_check(struct covenant *, const char *,
-		    u_int64_t, u_int8_t, char *, size_t);
+		    u_int64_t, u_int8_t, char *, size_t, int *);
 static void	provision_name_sign(const struct covenant_keks *, u_int8_t,
 		    const char *, u_int8_t *, size_t, u_int8_t *, size_t);
 static int	provision_device_config(struct covenant *,
@@ -262,6 +263,7 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
     size_t sk_len, const char *public, char *out, size_t out_len)
 {
 	struct covenant_buf	buf;
+	int			gospel;
 	char			hex[CONFIG_HEX_MAX];
 	char			name[COVENANT_NAME_MAX + 1];
 
@@ -277,7 +279,7 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 	PRECOND(out_len > 0);
 
 	if (provision_config_check(ctx, public, keks->flock, kek,
-	    name, sizeof(name)) == -1)
+	    name, sizeof(name), &gospel) == -1)
 		return (-1);
 
 	nyfe_zeroize_register(hex, sizeof(hex));
@@ -293,13 +295,14 @@ covenant_config_build(struct covenant *ctx, const struct covenant_keks *keks,
 
 	nyfe_zeroize(hex, sizeof(hex));
 
-	provision_config_name(&buf, keks, kek, name);
+	if (gospel)
+		provision_config_name(&buf, keks, kek, name);
 
 	return (provision_config_done(ctx, &buf, out, out_len));
 }
 
 /*
- * Put the public part, the KEK and the signed name together into out
+ * Put the public part, the KEK and for comms the signed name into out
  * for a remote device, it adds its own cathedral secret and cosk. The
  * caller holds the lock and out should come from covenant_alloc().
  */
@@ -308,6 +311,7 @@ covenant_config_remote(struct covenant *ctx, const struct covenant_keks *keks,
     u_int8_t kek, const char *public, char *out, size_t out_len)
 {
 	struct covenant_buf	buf;
+	int			gospel;
 	char			name[COVENANT_NAME_MAX + 1];
 
 	PRECOND(ctx != NULL);
@@ -318,13 +322,14 @@ covenant_config_remote(struct covenant *ctx, const struct covenant_keks *keks,
 	PRECOND(out_len > 0);
 
 	if (provision_config_check(ctx, public, keks->flock, kek,
-	    name, sizeof(name)) == -1)
+	    name, sizeof(name), &gospel) == -1)
 		return (-1);
 
 	covenant_buf_init(&buf, out, out_len);
-
 	provision_config_kek(&buf, keks, kek, public);
-	provision_config_name(&buf, keks, kek, name);
+
+	if (gospel)
+		provision_config_name(&buf, keks, kek, name);
 
 	return (provision_config_done(ctx, &buf, out, out_len));
 }
@@ -446,16 +451,19 @@ provision_device_config(struct covenant *ctx, const struct covenant_device *dev,
 /*
  * Make sure the public part is a vigil configuration without keys for
  * the flock the KEKs belong to, with an spi that starts with the KEK and
- * with exactly one instance, which is copied into name.
+ * with exactly one instance, which is copied into name. Gospel is set
+ * for a comms configuration, only those get a signed name.
  *
  * Every line must be exactly "option value" with a single space between
  * them, vigil skips whitespace we would otherwise not see options behind.
  */
 static int
 provision_config_check(struct covenant *ctx, const char *public,
-    u_int64_t flock, u_int8_t kek, char *name, size_t name_len)
+    u_int64_t flock, u_int8_t kek, char *name, size_t name_len, int *gospel)
 {
+	int		tier6;
 	size_t		len, idx;
+	const char	*cathedral;
 	char		*line, *next, *opt;
 	int		ret, flocks, spis, names;
 	char		spi[8], want[32], buf[CONFIG_PUBLIC_MAX + 1];
@@ -465,6 +473,9 @@ provision_config_check(struct covenant *ctx, const char *public,
 	PRECOND(kek != 0);
 	PRECOND(name != NULL);
 	PRECOND(name_len == COVENANT_NAME_MAX + 1);
+	PRECOND(gospel != NULL);
+
+	*gospel = 0;
 
 	len = strlen(public);
 
@@ -500,7 +511,9 @@ provision_config_check(struct covenant *ctx, const char *public,
 
 	spis = 0;
 	names = 0;
+	tier6 = 0;
 	flocks = 0;
+	cathedral = NULL;
 
 	for (line = buf; line != NULL; line = next) {
 		next = strchr(line, '\n');
@@ -527,11 +540,18 @@ provision_config_check(struct covenant *ctx, const char *public,
 		}
 
 		if (!strcmp(line, "cathedral_flock")) {
-			if (strcmp(opt, want)) {
-				ctx->last_error = COVENANT_ERROR_CONFIG_FLOCK;
-				return (-1);
-			}
+			cathedral = opt;
 			flocks++;
+		}
+
+		if (!strcmp(line, "tier6")) {
+			if (!strcmp(opt, "yes"))
+				tier6 = 1;
+		}
+
+		if (!strcmp(line, "mode")) {
+			if (!strcmp(opt, "gospel"))
+				*gospel = 1;
 		}
 
 		if (!strcmp(line, "spi")) {
@@ -560,6 +580,45 @@ provision_config_check(struct covenant *ctx, const char *public,
 		ctx->last_error = COVENANT_ERROR_CONFIG;
 		return (-1);
 	}
+
+	if (provision_flock_check(cathedral, want, tier6) == -1) {
+		ctx->last_error = COVENANT_ERROR_CONFIG_FLOCK;
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
+ * Check the cathedral_flock of a configuration against the flock of
+ * the KEKs. A tier6 configuration picks its own flock domain, the
+ * lowest 8 bits, every other configuration uses the flock as is.
+ */
+static int
+provision_flock_check(const char *flock, const char *want, int tier6)
+{
+	size_t		len;
+
+	PRECOND(flock != NULL);
+	PRECOND(want != NULL);
+
+	len = strlen(want);
+	VERIFY(len > 2);
+
+	if (strlen(flock) != len)
+		return (-1);
+
+	if (!tier6) {
+		if (strcmp(flock, want))
+			return (-1);
+		return (0);
+	}
+
+	if (strncmp(flock, want, len - 2))
+		return (-1);
+
+	if (strspn(&flock[len - 2], "0123456789abcdef") != 2)
+		return (-1);
 
 	return (0);
 }

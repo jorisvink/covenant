@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Covenant
+Comment=Manage your flocks and devices on a Reliquary instance
+Exec=@APPDIR@/covenant
+Icon=covenant
+Terminal=false
+Categories=System;Security;
+StartupWMClass=covenant
+StartupNotify=true
