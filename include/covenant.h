@@ -54,6 +54,9 @@ extern "C" {
 /* The length of a cathedral offer signing (cosk) public key. */
 #define COVENANT_COSK_PUBLIC_LEN	32
 
+/* The length of a cathedral offer signing (cosk) secret key. */
+#define COVENANT_COSK_SECRET_LEN	64
+
 /* The length of a cathedral secret, it is given to us as hex. */
 #define COVENANT_CATHEDRAL_SECRET_LEN	32
 
@@ -137,13 +140,14 @@ struct covenant_backup_info {
 };
 
 /*
- * Everything needed to provision a device, into a QR code or into its
- * configuration for vigil on the same device.
+ * Everything needed to provision a device, into a QR code, into its
+ * configuration for vigil on the same device or into its keys alone.
  *
  * The config is the vigil configuration without its keys, we add the
  * KEK, the cathedral secret (hex, as the reliquary hands it out), the
  * cosk that was made with covenant_cosk_new(), the public key of the
- * flock and the signature over the instance of the device.
+ * flock and the signature over the instance of the device. The keys
+ * alone need no config.
  */
 struct covenant_device {
 	const void	*secret;
@@ -157,6 +161,17 @@ struct covenant_device {
 
 	u_int8_t	kek;
 	u_int32_t	cosk;
+};
+
+/*
+ * The keys of a device, for a computer that keeps them in files the
+ * way rlq does instead of in a vigil configuration.
+ */
+struct covenant_device_keys {
+	u_int8_t	kek[COVENANT_KEK_LEN];
+	u_int8_t	cosk[COVENANT_COSK_SECRET_LEN];
+	u_int8_t	cosk_pub[COVENANT_COSK_PUBLIC_LEN];
+	u_int8_t	secret[COVENANT_CATHEDRAL_SECRET_LEN];
 };
 
 /*
@@ -263,6 +278,8 @@ int	covenant_cosk_new(COVENANT *, u_int32_t *, void *, size_t);
 int	covenant_qr_encode(COVENANT *, const char *, void *, size_t, int *);
 int	covenant_provision(COVENANT *, const struct covenant_device *,
 	    void *, size_t, int *);
+int	covenant_provision_keys(COVENANT *, const struct covenant_device *,
+	    struct covenant_device_keys *);
 int	covenant_provision_config(COVENANT *, const struct covenant_device *,
 	    char *, size_t);
 

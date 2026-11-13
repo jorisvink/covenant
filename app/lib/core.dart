@@ -266,6 +266,31 @@ class Core {
     );
   }
 
+  Future<String> keysFolder() async => await _call<String>('keysFolder') ?? '';
+
+  Future<String?> keysFolderPick() => _call<String>('keysFolderPick');
+
+  Future<void> keysCheck(String folder, String flock) =>
+      _call<String>('keysCheck', {'folder': folder, 'flock': flock});
+
+  Future<String> provisionKeys({
+    required String flock,
+    required int kek,
+    required Cosk cosk,
+    required String secret,
+    required String device,
+    required String folder,
+  }) async =>
+      await _call<String>('provisionKeys', {
+        'flock': flock,
+        'kek': kek,
+        'handle': cosk.handle,
+        'secret': secret,
+        'device': device,
+        'folder': folder,
+      }) ??
+      '';
+
   Future<bool> handoffAvailable() async =>
       await _call<bool>('handoffAvailable') ?? false;
 

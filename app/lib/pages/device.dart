@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../api.dart';
 import '../app.dart';
 import '../core.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -38,6 +39,32 @@ class _DevicePageState extends State<DevicePage> {
 
   String get _name =>
       _r.deviceName(widget.flock, widget.id) ?? 'Device ${widget.id}';
+
+  Future<void> _rename() async {
+    var text =
+        'The name is kept on this $here. Leave it empty to show the '
+        'device ID.';
+
+    if (modeNamed(_r.deviceMode(widget.flock, widget.id)) == Mode.gospel) {
+      text =
+          '$text Other devices keep seeing the name signed for it until '
+          'you reprovision it.';
+    }
+
+    final name = await ask(
+      title: 'Name this device',
+      text: text,
+      action: 'Save',
+      initial: _r.deviceName(widget.flock, widget.id) ?? '',
+      hint: 'Device ${widget.id}',
+      maxLength: 63,
+      allow: nameChars,
+    );
+
+    if (name != null) {
+      await _r.nameDevice(widget.flock, widget.id, name);
+    }
+  }
 
   Future<void> _delete(Device device) async {
     final renew = _renew && device.approved && _r.hasKeks(widget.flock);
@@ -120,6 +147,7 @@ class _DevicePageState extends State<DevicePage> {
         return PushedPage(
           rubric: 'Device',
           title: _name,
+          actions: [GlyphBtn(GlyphKind.edit, label: 'Rename', onTap: _rename)],
           bottom: external
               ? null
               : device.approved && keks

@@ -82,6 +82,7 @@ static void	test_provision_qr(const u_int8_t *, const u_int8_t *);
 static void	test_config_remote(const u_int8_t *, const u_int8_t *);
 static void	test_remote_start(const u_int8_t *, const u_int8_t *);
 static void	test_backup_restore(const u_int8_t *, const u_int8_t *);
+static void	test_provision_keys(const u_int8_t *, const u_int8_t *);
 static void	test_provision_config(const u_int8_t *, const u_int8_t *);
 static void	test_route_decode(const char *, struct covenant_route *,
 		    char *, size_t);
@@ -144,6 +145,7 @@ main(void)
 	test_config_build(secret, sealed);
 	test_provision_qr(secret, sealed);
 	test_provision_config(secret, sealed);
+	test_provision_keys(secret, sealed);
 	test_keks_renew(secret, sealed);
 	test_backup_restore(secret, sealed);
 	test_key_wrap();
@@ -741,6 +743,94 @@ test_provision_config(const u_int8_t *secret, const u_int8_t *sealed)
 	CHECK(covenant_provision_config(ctx, &dev, config,
 	    sizeof(config)) == -1);
 	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_COSK);
+}
+
+/*
+ * Provision a device into its keys alone, the files rlq keeps for it.
+ * The KEK must be the one vigil gets in its configuration, the cosk must
+ * belong to the public key that was registered and it must be consumed.
+ */
+static void
+test_provision_keys(const u_int8_t *secret, const u_int8_t *sealed)
+{
+	struct covenant_device		dev;
+	struct covenant_device_keys	keys;
+	u_int32_t			handle;
+	char				*line, *end;
+	u_int8_t			kek[COVENANT_KEK_LEN];
+	u_int8_t			sig[crypto_sign_BYTES];
+	u_int8_t			pk[COVENANT_COSK_PUBLIC_LEN];
+	char				config[COVENANT_CONFIG_MAX_LEN];
+	u_int8_t			cs[COVENANT_CATHEDRAL_SECRET_LEN];
+
+	CHECK(covenant_cosk_new(ctx, &handle, pk, sizeof(pk)) == 0);
+
+	memset(&dev, 0, sizeof(dev));
+	dev.secret = secret;
+	dev.secret_len = COVENANT_VAULT_KEY_LEN;
+	dev.keks = sealed;
+	dev.keks_len = COVENANT_KEKS_SEALED_LEN;
+	dev.cosk = handle;
+	dev.kek = 0x2a;
+	dev.cathedral_secret =
+	    "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+	CHECK(covenant_provision_keys(NULL, &dev, &keys) == -1);
+	CHECK(covenant_provision_keys(ctx, NULL, &keys) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+	CHECK(covenant_provision_keys(ctx, &dev, NULL) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+
+	dev.cathedral_secret = "0011";
+	CHECK(covenant_provision_keys(ctx, &dev, &keys) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_PARAMETER);
+
+	dev.cathedral_secret =
+	    "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+	/* No config is needed for the keys alone. */
+	CHECK(covenant_provision_keys(ctx, &dev, &keys) == 0);
+
+	test_hex(dev.cathedral_secret, cs, sizeof(cs));
+	CHECK(!memcmp(keys.secret, cs, sizeof(cs)));
+	CHECK(!memcmp(keys.cosk_pub, pk, sizeof(pk)));
+
+	CHECK(crypto_sign_detached(sig, NULL, pk, sizeof(pk),
+	    keys.cosk) == 0);
+	CHECK(crypto_sign_verify_detached(sig, pk, sizeof(pk), pk) == 0);
+
+	/* The KEK is the one vigil gets for the same device. */
+	CHECK(covenant_cosk_new(ctx, &dev.cosk, pk, sizeof(pk)) == 0);
+	dev.config =
+	    "vigil 1\n"
+	    "instance laptop\n"
+	    "mode liturgy\n"
+	    "spi 2a\n"
+	    "cathedral cathedral.reliquary.se:4469\n"
+	    "cathedral_id 5eb2411f\n"
+	    "cathedral_flock 493abf95a07e0c00\n";
+
+	CHECK(covenant_provision_config(ctx, &dev, config,
+	    sizeof(config)) == 0);
+	CHECK((line = strstr(config, "\nkek ")) != NULL);
+
+	line += 5;
+	CHECK((end = strchr(line, '\n')) != NULL);
+	*end = '\0';
+
+	test_hex(line, kek, sizeof(kek));
+	CHECK(!memcmp(keys.kek, kek, sizeof(kek)));
+
+	/* The cosk was consumed by the device, a failure wipes the keys. */
+	dev.cosk = handle;
+	dev.config = NULL;
+	CHECK(covenant_provision_keys(ctx, &dev, &keys) == -1);
+	CHECK(covenant_last_error(ctx) == COVENANT_ERROR_NO_COSK);
+	CHECK(sodium_is_zero((u_int8_t *)&keys, sizeof(keys)));
+
+	nyfe_mem_zero(cs, sizeof(cs));
+	nyfe_mem_zero(kek, sizeof(kek));
+	nyfe_mem_zero(config, sizeof(config));
 }
 
 /*

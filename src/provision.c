@@ -169,7 +169,7 @@ covenant_provision(struct covenant *ctx, const struct covenant_device *dev,
 	if (provision_device_check(ctx, dev) == -1)
 		return (-1);
 
-	if (qr == NULL || qr_len == 0 || side == NULL) {
+	if (dev->config == NULL || qr == NULL || qr_len == 0 || side == NULL) {
 		ctx->last_error = COVENANT_ERROR_PARAMETER;
 		return (-1);
 	}
@@ -213,7 +213,8 @@ covenant_provision_config(struct covenant *ctx,
 	if (provision_device_check(ctx, dev) == -1)
 		return (-1);
 
-	if (out == NULL || out_len != COVENANT_CONFIG_MAX_LEN) {
+	if (dev->config == NULL || out == NULL ||
+	    out_len != COVENANT_CONFIG_MAX_LEN) {
 		ctx->last_error = COVENANT_ERROR_PARAMETER;
 		return (-1);
 	}
@@ -223,6 +224,74 @@ covenant_provision_config(struct covenant *ctx,
 
 	if (ret == 0)
 		nyfe_mem_zero(cosk, sizeof(*cosk));
+
+	covenant_unlock();
+
+	return (ret);
+}
+
+/*
+ * Hand out the keys of the device without a vigil configuration, for a
+ * platform that writes them into files the way rlq keeps them. On
+ * success the cosk pair of the device is consumed.
+ *
+ * The platform should give us memory it wipes for the keys and only
+ * keep them until they are written out.
+ */
+int
+covenant_provision_keys(struct covenant *ctx,
+    const struct covenant_device *dev, struct covenant_device_keys *keys)
+{
+	int			ret;
+	struct covenant_keks	*keks;
+	struct covenant_cosk	*cosk;
+
+	if (ctx == NULL)
+		return (-1);
+
+	if (provision_device_check(ctx, dev) == -1)
+		return (-1);
+
+	if (keys == NULL) {
+		ctx->last_error = COVENANT_ERROR_PARAMETER;
+		return (-1);
+	}
+
+	ret = -1;
+	covenant_lock();
+
+	if (covenant_hex_decode(dev->cathedral_secret, keys->secret,
+	    sizeof(keys->secret)) == -1) {
+		ctx->last_error = COVENANT_ERROR_PARAMETER;
+		goto cleanup;
+	}
+
+	if ((cosk = covenant_cosk_lookup(ctx, dev->cosk)) == NULL) {
+		ctx->last_error = COVENANT_ERROR_NO_COSK;
+		goto cleanup;
+	}
+
+	if ((keks = covenant_keks_open(ctx, dev->secret, dev->secret_len,
+	    dev->keks, dev->keks_len)) == NULL)
+		goto cleanup;
+
+	nyfe_memcpy(keys->kek, keks->kek[dev->kek - 1], sizeof(keys->kek));
+	covenant_keks_close(keks);
+
+	VERIFY(sizeof(keys->cosk) == sizeof(cosk->sk));
+	nyfe_memcpy(keys->cosk, cosk->sk, sizeof(keys->cosk));
+
+	if (crypto_sign_ed25519_sk_to_pk(keys->cosk_pub, keys->cosk) != 0) {
+		ctx->last_error = COVENANT_ERROR_INTERNAL;
+		goto cleanup;
+	}
+
+	nyfe_mem_zero(cosk, sizeof(*cosk));
+	ret = 0;
+
+cleanup:
+	if (ret == -1)
+		nyfe_mem_zero(keys, sizeof(*keys));
 
 	covenant_unlock();
 
@@ -382,7 +451,8 @@ covenant_hex_decode(const char *hex, u_int8_t *out, size_t len)
 }
 
 /*
- * Check that the platform gave us everything a device needs.
+ * Check that the platform gave us everything a device needs, besides
+ * its configuration which only some of the callers need.
  */
 static int
 provision_device_check(struct covenant *ctx, const struct covenant_device *dev)
@@ -391,7 +461,7 @@ provision_device_check(struct covenant *ctx, const struct covenant_device *dev)
 
 	if (dev == NULL || dev->secret == NULL ||
 	    dev->secret_len != COVENANT_VAULT_KEY_LEN || dev->keks == NULL ||
-	    dev->keks_len != COVENANT_KEKS_SEALED_LEN || dev->config == NULL ||
+	    dev->keks_len != COVENANT_KEKS_SEALED_LEN ||
 	    dev->cathedral_secret == NULL || dev->kek == 0) {
 		ctx->last_error = COVENANT_ERROR_PARAMETER;
 		return (-1);

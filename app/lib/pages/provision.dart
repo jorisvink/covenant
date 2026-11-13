@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../app.dart';
 import '../core.dart';
+import '../platform.dart';
 import '../reliquary.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -33,7 +34,7 @@ Mode? modeNamed(String? name) {
 
 enum _Step { cosk, renew, register, approve, unlock }
 
-enum Where { qr, here, remote, computer }
+enum Where { qr, here, remote, computer, folder }
 
 Future<void> addDevice(String flock, {Device? replace}) async {
   var here = false;
@@ -49,6 +50,12 @@ Future<void> addDevice(String flock, {Device? replace}) async {
       if (replace == null) ...[
         (Where.remote, 'Phone far away', 'Type secret words into Vigil'),
         (Where.computer, 'Computer', 'Type secret words into the cephas tool'),
+        if (desktop)
+          (
+            Where.folder,
+            'Keys in a folder',
+            'Write the keys for rlq to a folder',
+          ),
       ],
       if (here)
         (Where.here, 'This phone', 'Provision the Vigil app on this phone'),
@@ -62,7 +69,7 @@ Future<void> addDevice(String flock, {Device? replace}) async {
   await push<void>(ProvisionPage(flock: flock, where: where, replace: replace));
 }
 
-String _stepText(_Step step, {required bool here, required bool replace}) =>
+String _stepText(_Step step, {required Where where, required bool replace}) =>
     switch (step) {
       _Step.cosk => 'Create a cathedral key for the device',
       _Step.renew => 'Replace the KEK of the old device',
@@ -71,13 +78,14 @@ String _stepText(_Step step, {required bool here, required bool replace}) =>
             ? 'Hand the device over at Reliquary'
             : 'Register it with Reliquary',
       _Step.approve => 'Add it to the flock',
-      _Step.unlock =>
-        here
-            ? 'Unlock your KEKs and hand it to Vigil'
-            : 'Unlock your KEKs and make the QR code',
+      _Step.unlock => switch (where) {
+        Where.here => 'Unlock your KEKs and hand it to Vigil',
+        Where.folder => 'Unlock your KEKs and write the keys',
+        _ => 'Unlock your KEKs and make the QR code',
+      },
     };
 
-final _name = RegExp(r'[A-Za-z0-9 ._-]');
+final nameChars = RegExp(r'[A-Za-z0-9 ._-]');
 final _ip = RegExp(
   r'^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$',
 );
@@ -133,6 +141,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
   bool _peerNext = false;
   bool _blockIpv6 = true;
   String? _cathedral;
+  String? _folder;
 
   bool _running = false;
   _Step? _at;
@@ -146,6 +155,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
   Where get _where => widget.where;
 
   bool get _here => _where == Where.here;
+
+  bool get _toFolder => _where == Where.folder;
 
   bool get _remote => _where == Where.remote || _where == Where.computer;
 
@@ -182,6 +193,9 @@ class _ProvisionPageState extends State<ProvisionPage> {
       Where.computer =>
         'Give the computer a name. You then get secret words to type into '
             'cephas on the computer, it only gets its KEK.',
+      Where.folder =>
+        'Give the computer a name. Its keys are then written into the '
+            'folder you choose, the way rlq keeps them.',
     };
   }
 
@@ -195,6 +209,10 @@ class _ProvisionPageState extends State<ProvisionPage> {
     _cathedral = _r.session?.cathedral;
     _instance.text = _keep ?? '';
     _mode = _locked ?? _mode;
+
+    if (_toFolder) {
+      _defaultFolder().ignore();
+    }
   }
 
   @override
@@ -230,6 +248,14 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
     if (_where == Where.computer) {
       return _cathedralCheck();
+    }
+
+    if (_toFolder) {
+      if ((_folder ?? '').isEmpty) {
+        return 'Choose a folder for the keys.';
+      }
+
+      return null;
     }
 
     if (_mode == Mode.cathedral) {
@@ -407,6 +433,15 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
     final old = widget.replace;
 
+    if (_toFolder && _reg == null) {
+      try {
+        await Core.instance.keysCheck(_folder!, widget.flock);
+      } on CoreError catch (e) {
+        notify(e.message);
+        return;
+      }
+    }
+
     if (old != null && !_renewed) {
       _days ??= await chooseDays();
       if (_days == null) {
@@ -457,7 +492,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
         _peer.text = hex(next, prefix: false);
       }
 
-      if (_mode == Mode.cathedral &&
+      if (!_toFolder &&
+          _mode == Mode.cathedral &&
           int.parse(_peer.text.trim(), radix: 16) == _kek) {
         throw ApiError(
           'This device got the same KEK ID as the device you picked to '
@@ -467,6 +503,28 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
       _at = _Step.unlock;
       setState(() {});
+
+      if (_toFolder) {
+        final dir = await Core.instance.provisionKeys(
+          flock: widget.flock,
+          kek: _kek!,
+          cosk: _cosk!,
+          secret: _reg!.secret,
+          device: _reg!.id,
+          folder: _folder!,
+        );
+
+        _cosk = null;
+        await _r.nameDevice(widget.flock, _reg!.id, _instance.text.trim());
+
+        notify(
+          'The keys are in $dir. It can take up to a minute before '
+          'Reliquary accepts the new device.',
+          warn: false,
+        );
+        navigatorKey.currentState?.pop();
+        return;
+      }
 
       if (_here) {
         await Core.instance.handoff(
@@ -668,6 +726,30 @@ class _ProvisionPageState extends State<ProvisionPage> {
     });
   }
 
+  Future<void> _defaultFolder() async {
+    try {
+      final folder = await Core.instance.keysFolder();
+      if (mounted) {
+        setState(() => _folder ??= folder);
+      }
+    } on CoreError catch (e) {
+      notify(e.message);
+    }
+  }
+
+  Future<void> _pickFolder() async {
+    try {
+      final folder = await Core.instance.keysFolderPick();
+      if (folder != null && mounted) {
+        setState(() => _folder = folder);
+      }
+    } on CoreError catch (e) {
+      if (!e.cancelled) {
+        notify(e.message);
+      }
+    }
+  }
+
   Future<void> _pickCathedral() async {
     try {
       final list = await _r.loadCathedrals();
@@ -720,7 +802,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
             _Progress(
               at: _at,
               failed: _failed,
-              here: _here,
+              where: _where,
               steps: _steps,
               replace: widget.replace != null,
             ),
@@ -742,7 +824,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
               Field(
                 controller: _instance,
                 hint: 'laptop',
-                allow: _name,
+                allow: nameChars,
                 maxLength: 63,
               ),
             if (_mode == Mode.gospel && _where != Where.computer)
@@ -751,7 +833,23 @@ class _ProvisionPageState extends State<ProvisionPage> {
                 'by all other devices.',
                 style: Styles.detail,
               ),
-            if (_where != Where.computer) ...[
+            if (_toFolder) ...[
+              GroupLabel('Folder', index: ++index),
+              LinkList(
+                rows: [
+                  LinkRow(
+                    _folder ?? 'Choose a folder',
+                    _pickFolder,
+                    detail: 'Where rlq finds the keys',
+                  ),
+                ],
+              ),
+              Text(
+                'The keys go into a folder named ${widget.flock} inside it.',
+                style: Styles.detail,
+              ),
+            ],
+            if (_where != Where.computer && !_toFolder) ...[
               GroupLabel('How it connects', index: ++index),
               Choice<Mode>(
                 options: [
@@ -1015,14 +1113,14 @@ class _Progress extends StatelessWidget {
   const _Progress({
     required this.at,
     required this.failed,
-    required this.here,
+    required this.where,
     required this.steps,
     required this.replace,
   });
 
   final _Step? at;
   final String? failed;
-  final bool here;
+  final Where where;
   final List<_Step> steps;
   final bool replace;
 
@@ -1042,7 +1140,7 @@ class _Progress extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      _stepText(step, here: here, replace: replace),
+                      _stepText(step, where: where, replace: replace),
                       style: Styles.body.copyWith(
                         color: _state(step) == Liveness.off
                             ? Palette.dim

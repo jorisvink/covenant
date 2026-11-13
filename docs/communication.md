@@ -155,6 +155,31 @@ never synchronised. The app then opens `vigil://import`. If Vigil
 cannot be opened, the item is removed again. The item is also removed
 whenever the app starts.
 
+## Writing the keys to a folder
+
+On Linux a device can also be provisioned as plain key files, for rlq
+and the tools it runs. There is no vigil configuration, the C library
+hands out the keys alone with `covenant_provision_keys()` and consumes
+the cosk pair. The runner writes them into `<folder>/<flock>` with the
+names rlq uses:
+
+- `id-<device>`, the cathedral secret,
+- `cosk-<device>` and `cosk-pub-<device>`, the cosk pair,
+- `kek-0x<kek>`, the KEK of the device,
+- `cathedral_id`, the device id followed by a newline,
+- `device_kek`, the KEK id in hex followed by a newline.
+
+The folder is `$RELIQUARY`, or `$HOME/.config/reliquary` when that is
+not set, unless the user picks another one. Like `rlq flock join` the
+runner refuses a folder whose flock already has a `cathedral_id`, it
+checks that before the device is registered. Before the keys are
+unsealed it checks that none of the six files exist, it never writes
+over keys that are already there. Every file is written with mode 0600,
+the keys go out from memory of `runner_alloc()`, and `cathedral_id` and
+`device_kek` are written last. When writing fails, the temporary file
+and the files that were already written are wiped, files that were
+there before are left alone.
+
 ## Between the interface and the platform
 
 The Flutter side talks to Kotlin, Swift or the C runner on Linux over

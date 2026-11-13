@@ -28,8 +28,8 @@ void	runner_free(void *, size_t);
 int	runner_channel_init(FlView *, GtkWindow *);
 
 /* dialog.c */
-int	runner_pick(GtkWindow *, const char *, int, char **);
 int	runner_recovery(GtkWindow *, const char *, u_int8_t *, size_t);
+int	runner_pick(GtkWindow *, const char *, int, const char *, char **);
 int	runner_passphrase(GtkWindow *, const char *, int, char **, size_t *);
 
 #endif

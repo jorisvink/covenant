@@ -700,6 +700,7 @@ Future<String?> ask({
   String initial = '',
   String? hint,
   int? maxLength,
+  RegExp? allow,
 }) async {
   final context = navigatorKey.currentContext;
   if (context == null) {
@@ -742,6 +743,7 @@ Future<String?> ask({
                 controller: controller,
                 hint: hint,
                 maxLength: maxLength,
+                allow: allow,
                 autofocus: true,
                 onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
               ),

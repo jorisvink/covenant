@@ -50,8 +50,32 @@
 #define ASK_BACKUP		(1 << 1)
 #define ASK_RECOVERY		(1 << 2)
 #define ASK_PASSPHRASE		(1 << 3)
+#define ASK_TARGET		(1 << 4)
+
+/* The length of a device (cathedral id) as hex. */
+#define DEVICE_HEX_LEN		8
+
+/*
+ * The files rlq keeps for a device, in the order we write them. The
+ * cathedral_id and device_kek go last, rlq takes those as the sign that
+ * the device was joined and has its KEK.
+ */
+#define KEYS_ID			0
+#define KEYS_COSK		1
+#define KEYS_COSK_PUB		2
+#define KEYS_KEK		3
+#define KEYS_CATHEDRAL_ID	4
+#define KEYS_DEVICE_KEK		5
+#define KEYS_MAX		6
 
 struct job;
+
+/*
+ * The paths of the files rlq keeps for a device.
+ */
+struct keys_files {
+	char		path[KEYS_MAX][PATH_MAX];
+};
 
 /*
  * A method on the channel.
@@ -89,6 +113,9 @@ struct job {
 static int	file_wipe(const char *);
 static int	dir_path(char *, size_t);
 static int	flock_valid(const char *);
+static void	file_discard(const char *);
+static int	device_valid(const char *);
+static int	keys_default(char *, size_t);
 static int	flock_has_keks(const char *);
 static int	dir_flock_next(DIR *, char *, size_t);
 static int	file_read(const char *, void *, size_t);
@@ -99,10 +126,24 @@ static int	file_path(char *, size_t, const char *, const char *);
 static void		*job_run(void *);
 static gboolean		job_done(gpointer);
 static void		job_core_error(struct job *);
+static int		keys_mkdir(struct job *, const char *);
+static int		keys_joined(struct job *, const char *);
 static int		job_unlock(struct job *, u_int8_t *, size_t);
+static int		keys_absent(struct job *, const struct keys_files *);
+static int		keys_write(struct job *, const char *,
+			    const void *, size_t);
+static int		keys_paths(struct job *, struct keys_files *,
+			    const char *, const char *, u_int8_t);
 static void		job_error(struct job *, const char *, const char *, ...)
 			    __attribute__((format (printf, 3, 4)));
+static int		keys_path(struct job *, struct keys_files *, int,
+			    const char *, ...)
+			    __attribute__((format (printf, 4, 5)));
+static int		keys_save(struct job *, const struct keys_files *,
+			    const char *, u_int8_t,
+			    const struct covenant_device_keys *);
 
+static int		arg_keys_dir(struct job *, char *, size_t);
 static const char	*arg_string(struct job *, const char *, int);
 static const char	*arg_file(struct job *, FlValue *, char *, size_t);
 static int		arg_flock(struct job *, char *, size_t, u_int64_t *);
@@ -121,17 +162,21 @@ static FlValue	*op_handoff(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_cosk_new(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_generate(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_cosk_drop(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_keys_pick(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_file_read(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_provision(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_passphrase(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_keys_check(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_file_write(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_run(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_keys_folder(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_file_delete(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_stop(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_start(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_words(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_import_ambry(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_import_backup(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_provision_keys(struct job *, const u_int8_t *, size_t);
 static FlValue	*ambry_bundle(struct job *, const u_int8_t *, size_t,
 		    const u_int8_t *, size_t, int64_t);
 
@@ -156,6 +201,12 @@ static const struct op ops[] = {
 	{ KEY_OPEN, 0, "provision",
 	    "Unlock your KEKs to add a new device.", op_provision },
 	{ KEY_NONE, 0, "handoffAvailable", NULL, op_handoff },
+	{ KEY_NONE, 0, "keysFolder", NULL, op_keys_folder },
+	{ KEY_NONE, ASK_TARGET, "keysFolderPick", NULL, op_keys_pick },
+	{ KEY_NONE, 0, "keysCheck", NULL, op_keys_check },
+	{ KEY_OPEN, 0, "provisionKeys",
+	    "Unlock your KEKs to write the keys of the new device.",
+	    op_provision_keys },
 	{ KEY_NONE, 0, "remoteWords", NULL, op_remote_words },
 	{ KEY_OPEN, 0, "remoteStart",
 	    "Unlock your KEKs to send the device its keys.", op_remote_start },
@@ -274,8 +325,8 @@ channel_call(FlMethodChannel *channel, FlMethodCall *call, gpointer arg)
 	size_t			idx;
 	struct job		*job;
 	int			exists;
-	const char		*name, *reason;
 	char			path[PATH_MAX];
+	const char		*name, *reason, *start;
 
 	name = fl_method_call_get_name(call);
 
@@ -301,7 +352,7 @@ channel_call(FlMethodChannel *channel, FlMethodCall *call, gpointer arg)
 
 	if (job->op->ask & ASK_FOLDER) {
 		if (runner_pick(window, "Choose the flock folder ambry made",
-		    1, &job->source) == -1) {
+		    1, NULL, &job->source) == -1) {
 			job_error(job, "cancelled", "Nothing was imported.");
 			job_done(job);
 			return;
@@ -310,8 +361,21 @@ channel_call(FlMethodChannel *channel, FlMethodCall *call, gpointer arg)
 
 	if (job->op->ask & ASK_BACKUP) {
 		if (runner_pick(window, "Choose a backup",
-		    0, &job->source) == -1) {
+		    0, NULL, &job->source) == -1) {
 			job_error(job, "cancelled", "Nothing was imported.");
+			job_done(job);
+			return;
+		}
+	}
+
+	if (job->op->ask & ASK_TARGET) {
+		start = NULL;
+		if (keys_default(path, sizeof(path)) == 0)
+			start = path;
+
+		if (runner_pick(window, "Choose the folder for the keys",
+		    1, start, &job->source) == -1) {
+			job_error(job, "cancelled", "No folder was chosen.");
 			job_done(job);
 			return;
 		}
@@ -1035,6 +1099,128 @@ op_provision(struct job *job, const u_int8_t *vk, size_t vk_len)
 }
 
 /*
+ * Get the folder rlq keeps its keys in, the default for where we write
+ * the keys of a device.
+ */
+static FlValue *
+op_keys_folder(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	char		path[PATH_MAX];
+
+	if (keys_default(path, sizeof(path)) == -1) {
+		job_error(job, "failed", "Your home is not set.");
+		return (NULL);
+	}
+
+	return (fl_value_new_string(path));
+}
+
+/*
+ * Return the folder the user picked for the keys of a device.
+ */
+static FlValue *
+op_keys_pick(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	return (fl_value_new_string(job->source));
+}
+
+/*
+ * Check that the folder does not already hold the keys of a device in
+ * the flock, before we register a new one.
+ */
+static FlValue *
+op_keys_check(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	char		dir[PATH_MAX];
+
+	if (arg_keys_dir(job, dir, sizeof(dir)) == -1)
+		return (NULL);
+
+	if (keys_joined(job, dir) == -1)
+		return (NULL);
+
+	return (NULL);
+}
+
+/*
+ * Provision a device into its keys alone, written into the folder of
+ * the flock under the given folder the way rlq lays them out. Returns
+ * the folder of the flock.
+ */
+static FlValue *
+op_provision_keys(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	struct covenant_device		dev;
+	int				ret;
+	struct keys_files		paths;
+	struct covenant_device_keys	*keys;
+	const char			*device;
+	int64_t				kek, handle;
+	char				dir[PATH_MAX];
+	char				flock[FLOCK_HEX_LEN + 1];
+	u_int8_t			sealed[COVENANT_KEKS_SEALED_LEN];
+
+	if (arg_keks(job, flock, sizeof(flock), sealed, sizeof(sealed)) == -1)
+		return (NULL);
+
+	if (arg_int(job, "kek", 1, COVENANT_KEK_COUNT, &kek) == -1)
+		return (NULL);
+
+	if (arg_int(job, "handle", 0, UINT32_MAX, &handle) == -1)
+		return (NULL);
+
+	if ((device = arg_string(job, "device", 0)) == NULL)
+		return (NULL);
+
+	if (device_valid(device) == -1) {
+		job_error(job, "invalid", "That is not a device ID.");
+		return (NULL);
+	}
+
+	if (arg_keys_dir(job, dir, sizeof(dir)) == -1)
+		return (NULL);
+
+	if (keys_paths(job, &paths, dir, device, (u_int8_t)kek) == -1)
+		return (NULL);
+
+	if (keys_absent(job, &paths) == -1)
+		return (NULL);
+
+	memset(&dev, 0, sizeof(dev));
+
+	if ((dev.cathedral_secret = arg_string(job, "secret", 0)) == NULL)
+		return (NULL);
+
+	if (keys_mkdir(job, dir) == -1)
+		return (NULL);
+
+	dev.secret = vk;
+	dev.secret_len = vk_len;
+
+	dev.keks = sealed;
+	dev.keks_len = sizeof(sealed);
+
+	dev.kek = kek;
+	dev.cosk = handle;
+
+	keys = runner_alloc(sizeof(*keys));
+
+	if (covenant_provision_keys(ctx, &dev, keys) == -1) {
+		runner_free(keys, sizeof(*keys));
+		job_core_error(job);
+		return (NULL);
+	}
+
+	ret = keys_save(job, &paths, device, (u_int8_t)kek, keys);
+	runner_free(keys, sizeof(*keys));
+
+	if (ret == -1)
+		return (NULL);
+
+	return (fl_value_new_string(dir));
+}
+
+/*
  * Wrap the vault key under the new passphrase, which is wiped as soon
  * as it is done. The old passphrase no longer opens it.
  */
@@ -1603,6 +1789,42 @@ arg_keks(struct job *job, char *flock, size_t len, u_int8_t *sealed,
 }
 
 /*
+ * Get the folder argument of a call and the folder of the flock under
+ * it into dir, the way rlq lays them out.
+ */
+static int
+arg_keys_dir(struct job *job, char *dir, size_t len)
+{
+	u_int64_t	id;
+	int		ret;
+	const char	*folder;
+	char		flock[FLOCK_HEX_LEN + 1];
+
+	PRECOND(job != NULL);
+	PRECOND(dir != NULL);
+	PRECOND(len > 0);
+
+	if (arg_flock(job, flock, sizeof(flock), &id) == -1)
+		return (-1);
+
+	if ((folder = arg_string(job, "folder", 0)) == NULL)
+		return (-1);
+
+	if (folder[0] != '/') {
+		job_error(job, "invalid", "Choose a folder for the keys.");
+		return (-1);
+	}
+
+	ret = snprintf(dir, len, "%s/%s", folder, flock);
+	if (ret < 0 || (size_t)ret >= len) {
+		job_error(job, "failed", "The path is too long.");
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
  * Get an integer argument of a call within min and max.
  */
 static int
@@ -1803,6 +2025,322 @@ flock_valid(const char *flock)
 }
 
 /*
+ * Get the folder rlq keeps everything in, $RELIQUARY when it is set
+ * and $HOME/.config/reliquary when it is not.
+ */
+static int
+keys_default(char *path, size_t len)
+{
+	int		ret;
+	const char	*env, *home;
+
+	PRECOND(path != NULL);
+	PRECOND(len > 0);
+
+	if ((env = getenv("RELIQUARY")) != NULL) {
+		ret = snprintf(path, len, "%s", env);
+	} else {
+		if ((home = getenv("HOME")) == NULL)
+			return (-1);
+
+		ret = snprintf(path, len, "%s/.config/reliquary", home);
+	}
+
+	if (ret < 0 || (size_t)ret >= len)
+		return (-1);
+
+	return (0);
+}
+
+/*
+ * Make sure dir does not hold the keys of a device yet, rlq refuses to
+ * join a flock again for the same reason.
+ */
+static int
+keys_joined(struct job *job, const char *dir)
+{
+	struct stat	st;
+	int		ret;
+	char		path[PATH_MAX];
+
+	PRECOND(job != NULL);
+	PRECOND(dir != NULL);
+
+	ret = snprintf(path, sizeof(path), "%s/cathedral_id", dir);
+	if (ret < 0 || (size_t)ret >= sizeof(path)) {
+		job_error(job, "failed", "The path is too long.");
+		return (-1);
+	}
+
+	if (stat(path, &st) == -1) {
+		if (errno == ENOENT)
+			return (0);
+
+		job_error(job, "failed", "Failed to check %s: %s",
+		    path, strerror(errno));
+		return (-1);
+	}
+
+	job_error(job, "exists",
+	    "%s already holds the keys of a device in this flock.", dir);
+
+	return (-1);
+}
+
+/*
+ * Make the folder of the flock and the folder it sits in when needed.
+ */
+static int
+keys_mkdir(struct job *job, const char *dir)
+{
+	char		*sep;
+	char		parent[PATH_MAX];
+
+	PRECOND(job != NULL);
+	PRECOND(dir != NULL);
+
+	if (strlen(dir) >= sizeof(parent)) {
+		job_error(job, "failed", "The path is too long.");
+		return (-1);
+	}
+
+	memcpy(parent, dir, strlen(dir) + 1);
+
+	if ((sep = strrchr(parent, '/')) == NULL) {
+		job_error(job, "invalid", "Choose a folder for the keys.");
+		return (-1);
+	}
+
+	*sep = '\0';
+
+	if (parent[0] != '\0') {
+		if (mkdir(parent, 0700) == -1 && errno != EEXIST) {
+			job_error(job, "failed", "Failed to make %s: %s",
+			    parent, strerror(errno));
+			return (-1);
+		}
+	}
+
+	if (mkdir(dir, 0700) == -1 && errno != EEXIST) {
+		job_error(job, "failed", "Failed to make %s: %s",
+		    dir, strerror(errno));
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
+ * Get the paths of all files rlq keeps for the device in dir.
+ */
+static int
+keys_paths(struct job *job, struct keys_files *paths, const char *dir,
+    const char *device, u_int8_t kek)
+{
+	PRECOND(job != NULL);
+	PRECOND(paths != NULL);
+	PRECOND(dir != NULL);
+	PRECOND(device != NULL);
+	PRECOND(kek != 0);
+
+	if (keys_path(job, paths, KEYS_ID, "%s/id-%s", dir, device) == -1)
+		return (-1);
+
+	if (keys_path(job, paths, KEYS_COSK, "%s/cosk-%s", dir, device) == -1)
+		return (-1);
+
+	if (keys_path(job, paths, KEYS_COSK_PUB,
+	    "%s/cosk-pub-%s", dir, device) == -1)
+		return (-1);
+
+	if (keys_path(job, paths, KEYS_KEK, "%s/kek-0x%02x", dir, kek) == -1)
+		return (-1);
+
+	if (keys_path(job, paths, KEYS_CATHEDRAL_ID,
+	    "%s/cathedral_id", dir) == -1)
+		return (-1);
+
+	if (keys_path(job, paths, KEYS_DEVICE_KEK,
+	    "%s/device_kek", dir) == -1)
+		return (-1);
+
+	return (0);
+}
+
+/*
+ * Put the path that fmt makes into the given slot of paths.
+ */
+static int
+keys_path(struct job *job, struct keys_files *paths, int which,
+    const char *fmt, ...)
+{
+	int		ret;
+	va_list		args;
+
+	PRECOND(job != NULL);
+	PRECOND(paths != NULL);
+	PRECOND(which >= 0);
+	PRECOND(which < KEYS_MAX);
+	PRECOND(fmt != NULL);
+
+	va_start(args, fmt);
+	ret = vsnprintf(paths->path[which], sizeof(paths->path[which]),
+	    fmt, args);
+	va_end(args);
+
+	if (ret < 0 || (size_t)ret >= sizeof(paths->path[which])) {
+		job_error(job, "failed", "The path is too long.");
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
+ * Make sure none of the files we are about to write exist yet, we never
+ * write over keys that are already there.
+ */
+static int
+keys_absent(struct job *job, const struct keys_files *paths)
+{
+	struct stat	st;
+	int		idx;
+
+	PRECOND(job != NULL);
+	PRECOND(paths != NULL);
+
+	for (idx = 0; idx < KEYS_MAX; idx++) {
+		if (lstat(paths->path[idx], &st) == -1) {
+			if (errno == ENOENT)
+				continue;
+
+			job_error(job, "failed", "Failed to check %s: %s",
+			    paths->path[idx], strerror(errno));
+			return (-1);
+		}
+
+		job_error(job, "exists",
+		    "%s is already there, nothing was written over it.",
+		    paths->path[idx]);
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
+ * Write the keys of the device into the files rlq keeps for it, in
+ * the order of their slots. When one of them fails we wipe the ones
+ * we already wrote, files that were there before are never touched.
+ */
+static int
+keys_save(struct job *job, const struct keys_files *paths, const char *device,
+    u_int8_t kek, const struct covenant_device_keys *keys)
+{
+	int		len, written;
+	char		id[16], slot[16];
+
+	PRECOND(job != NULL);
+	PRECOND(paths != NULL);
+	PRECOND(device != NULL);
+	PRECOND(kek != 0);
+	PRECOND(keys != NULL);
+
+	len = snprintf(id, sizeof(id), "%s\n", device);
+	if (len < 0 || (size_t)len >= sizeof(id)) {
+		job_error(job, "invalid", "That is not a device ID.");
+		return (-1);
+	}
+
+	len = snprintf(slot, sizeof(slot), "%02x\n", kek);
+	if (len < 0 || (size_t)len >= sizeof(slot)) {
+		job_error(job, "invalid", "That is not a KEK ID.");
+		return (-1);
+	}
+
+	written = 0;
+
+	if (keys_write(job, paths->path[KEYS_ID],
+	    keys->secret, sizeof(keys->secret)) == -1)
+		goto cleanup;
+	written++;
+
+	if (keys_write(job, paths->path[KEYS_COSK],
+	    keys->cosk, sizeof(keys->cosk)) == -1)
+		goto cleanup;
+	written++;
+
+	if (keys_write(job, paths->path[KEYS_COSK_PUB],
+	    keys->cosk_pub, sizeof(keys->cosk_pub)) == -1)
+		goto cleanup;
+	written++;
+
+	if (keys_write(job, paths->path[KEYS_KEK],
+	    keys->kek, sizeof(keys->kek)) == -1)
+		goto cleanup;
+	written++;
+
+	if (keys_write(job, paths->path[KEYS_CATHEDRAL_ID],
+	    id, strlen(id)) == -1)
+		goto cleanup;
+	written++;
+
+	if (keys_write(job, paths->path[KEYS_DEVICE_KEK],
+	    slot, strlen(slot)) == -1)
+		goto cleanup;
+
+	return (0);
+
+cleanup:
+	while (written-- > 0) {
+		if (file_wipe(paths->path[written]) == -1) {
+			fprintf(stderr, "covenant: failed to wipe %s: %s\n",
+			    paths->path[written], strerror(errno));
+		}
+	}
+
+	return (-1);
+}
+
+/*
+ * Write len bytes from buf into the file at path.
+ */
+static int
+keys_write(struct job *job, const char *path, const void *buf, size_t len)
+{
+	PRECOND(job != NULL);
+	PRECOND(path != NULL);
+	PRECOND(buf != NULL);
+	PRECOND(len > 0);
+
+	if (file_write(path, buf, len) == -1) {
+		job_error(job, "failed", "Failed to save %s: %s",
+		    path, strerror(errno));
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
+ * Check that a device is 8 lowercase hex characters, as the reliquary
+ * hands them out.
+ */
+static int
+device_valid(const char *device)
+{
+	PRECOND(device != NULL);
+
+	if (strlen(device) != DEVICE_HEX_LEN)
+		return (-1);
+
+	if (strspn(device, "0123456789abcdef") != DEVICE_HEX_LEN)
+		return (-1);
+
+	return (0);
+}
+
+/*
  * Check if the KEKs of the given flock are already here.
  */
 static int
@@ -1881,7 +2419,8 @@ file_read(const char *path, void *buf, size_t len)
 
 /*
  * Write the file at path in one go, via a temporary file that is
- * synced and then renamed over it.
+ * synced and then renamed over it. When that fails the temporary file
+ * is wiped, it may hold part of a key.
  */
 static int
 file_write(const char *path, const void *buf, size_t len)
@@ -1906,7 +2445,7 @@ file_write(const char *path, const void *buf, size_t len)
 	if (file_write_all(fd, buf, len) == -1) {
 		saved = errno;
 		(void)close(fd);
-		(void)unlink(tmp);
+		file_discard(tmp);
 		errno = saved;
 		return (-1);
 	}
@@ -1914,26 +2453,42 @@ file_write(const char *path, const void *buf, size_t len)
 	if (fsync(fd) == -1) {
 		saved = errno;
 		(void)close(fd);
-		(void)unlink(tmp);
+		file_discard(tmp);
 		errno = saved;
 		return (-1);
 	}
 
 	if (close(fd) == -1) {
 		saved = errno;
-		(void)unlink(tmp);
+		file_discard(tmp);
 		errno = saved;
 		return (-1);
 	}
 
 	if (rename(tmp, path) == -1) {
 		saved = errno;
-		(void)unlink(tmp);
+		file_discard(tmp);
 		errno = saved;
 		return (-1);
 	}
 
 	return (0);
+}
+
+/*
+ * Get rid of a temporary file that may hold part of a key, wipe it and
+ * remove it anyway when the wipe fails.
+ */
+static void
+file_discard(const char *path)
+{
+	PRECOND(path != NULL);
+
+	if (file_wipe(path) == -1) {
+		fprintf(stderr, "covenant: failed to wipe %s: %s\n",
+		    path, strerror(errno));
+		(void)unlink(path);
+	}
 }
 
 /*

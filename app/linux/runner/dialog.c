@@ -17,6 +17,7 @@
 #include <sys/types.h>
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -142,11 +143,13 @@ runner_recovery(GtkWindow *parent, const char *reason, u_int8_t *root,
 
 /*
  * Let the user pick a folder, or a backup file when folder is not set.
- * On success path holds the path from malloc() that the caller must
- * free. Returns -1 when the user cancelled.
+ * The dialog opens in start when it is given. On success path holds the
+ * path from malloc() that the caller must free. Returns -1 when the user
+ * cancelled.
  */
 int
-runner_pick(GtkWindow *parent, const char *title, int folder, char **path)
+runner_pick(GtkWindow *parent, const char *title, int folder,
+    const char *start, char **path)
 {
 	int			ret;
 	GtkFileChooserAction	action;
@@ -168,6 +171,12 @@ runner_pick(GtkWindow *parent, const char *title, int folder, char **path)
 	    "_Cancel", GTK_RESPONSE_CANCEL, "_Open", GTK_RESPONSE_ACCEPT, NULL);
 
 	gtk_file_chooser_set_local_only(GTK_FILE_CHOOSER(dialog), TRUE);
+
+	if (start != NULL) {
+		if (gtk_file_chooser_set_current_folder(
+		    GTK_FILE_CHOOSER(dialog), start) == FALSE)
+			fprintf(stderr, "covenant: cannot open %s\n", start);
+	}
 
 	if (!folder) {
 		filter = gtk_file_filter_new();

@@ -128,7 +128,13 @@ class Reliquary extends ChangeNotifier {
     String name, {
     String? mode,
   }) async {
-    await _names((names) => names['$flock/$device'] = name);
+    await _names((names) {
+      if (name.isEmpty) {
+        names.remove('$flock/$device');
+      } else {
+        names['$flock/$device'] = name;
+      }
+    });
 
     if (mode != null) {
       await _map('modes', (modes) => modes['$flock/$device'] = mode);
