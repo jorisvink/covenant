@@ -180,6 +180,30 @@ the keys go out from memory of `runner_alloc()`, and `cathedral_id` and
 and the files that were already written are wiped, files that were
 there before are left alone.
 
+## Writing a configuration for Vigil on a desktop
+
+On Linux a desktop can also be provisioned as a plain Vigil
+configuration file, for when Covenant and Vigil run on the same
+computer and a remote handover would only move the keys from the
+machine to itself. Vigil on a desktop only takes a companion
+configuration with spi `0201`, so the mode is always companion and the
+desktop must get KEK 02. The phone has to be in the flock first with
+KEK 01, the app refuses to start when the next free KEK is not 02 and
+fails when the reliquary hands out another one.
+
+The C library builds the full configuration with
+`covenant_provision_config()` and consumes the cosk pair, the runner
+writes it into `<folder>/vigil-<flock>.conf` with mode 0600. The
+folder is `$HOME` unless the user picks another one. The runner checks
+the file is not there before the device is registered and again before
+the keys are unsealed, it never writes over a file. The configuration
+goes out from memory of `runner_alloc()`.
+
+The file holds the KEK, the cathedral secret and the cosk of the
+desktop in plaintext. The app warns about that before provisioning and
+tells the user to remove the file once Vigil has taken it in, by
+pasting it or opening the file.
+
 ## Between the interface and the platform
 
 The Flutter side talks to Kotlin, Swift or the C runner on Linux over

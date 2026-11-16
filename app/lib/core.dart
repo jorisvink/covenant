@@ -291,6 +291,32 @@ class Core {
       }) ??
       '';
 
+  Future<String> configFolder() async =>
+      await _call<String>('configFolder') ?? '';
+
+  Future<String?> configFolderPick() => _call<String>('configFolderPick');
+
+  Future<void> configCheck(String folder, String flock) =>
+      _call<String>('configCheck', {'folder': folder, 'flock': flock});
+
+  Future<String> provisionConfig({
+    required String flock,
+    required int kek,
+    required Cosk cosk,
+    required String secret,
+    required String config,
+    required String folder,
+  }) async =>
+      await _call<String>('provisionConfig', {
+        'flock': flock,
+        'kek': kek,
+        'handle': cosk.handle,
+        'secret': secret,
+        'config': config,
+        'folder': folder,
+      }) ??
+      '';
+
   Future<bool> handoffAvailable() async =>
       await _call<bool>('handoffAvailable') ?? false;
 

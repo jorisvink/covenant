@@ -13,13 +13,14 @@ import '../widgets/ui.dart';
 import 'qr.dart';
 import 'remote.dart';
 
-enum Mode { cathedral, liturgy, tier6, gospel }
+enum Mode { cathedral, liturgy, tier6, gospel, companion }
 
 String modeLabel(Mode mode) => switch (mode) {
   Mode.cathedral => 'One device',
   Mode.liturgy => 'Group',
   Mode.tier6 => 'Tier6',
   Mode.gospel => 'Comms',
+  Mode.companion => 'Vigil Companion',
 };
 
 Mode? modeNamed(String? name) {
@@ -34,7 +35,7 @@ Mode? modeNamed(String? name) {
 
 enum _Step { cosk, renew, register, approve, unlock }
 
-enum Where { qr, here, remote, computer, folder }
+enum Where { qr, here, remote, computer, folder, vigil }
 
 Future<void> addDevice(String flock, {Device? replace}) async {
   var here = false;
@@ -48,13 +49,23 @@ Future<void> addDevice(String flock, {Device? replace}) async {
     options: [
       (Where.qr, 'Phone next to you', 'Scan a QR code with Vigil'),
       if (replace == null) ...[
-        (Where.remote, 'Phone far away', 'Type secret words into Vigil'),
-        (Where.computer, 'Computer', 'Type secret words into the cephas tool'),
+        (Where.remote, 'Device far away', 'Type secret words into Vigil'),
+        (
+          Where.computer,
+          'Computer',
+          'Uses cephas to receive the KEK for the device',
+        ),
         if (desktop)
           (
             Where.folder,
             'Keys in a folder',
             'Write the keys for rlq to a folder',
+          ),
+        if (desktop)
+          (
+            Where.vigil,
+            'Vigil on a desktop',
+            'Write a configuration file for Vigil',
           ),
       ],
       if (here)
@@ -81,6 +92,7 @@ String _stepText(_Step step, {required Where where, required bool replace}) =>
       _Step.unlock => switch (where) {
         Where.here => 'Unlock your KEKs and hand it to Vigil',
         Where.folder => 'Unlock your KEKs and write the keys',
+        Where.vigil => 'Unlock your KEKs and write the configuration',
         _ => 'Unlock your KEKs and make the QR code',
       },
     };
@@ -156,7 +168,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
   bool get _here => _where == Where.here;
 
+  bool get _chatOnly => _mode == Mode.gospel || _mode == Mode.companion;
+
   bool get _toFolder => _where == Where.folder;
+
+  bool get _toVigil => _where == Where.vigil;
 
   bool get _remote => _where == Where.remote || _where == Where.computer;
 
@@ -196,6 +212,10 @@ class _ProvisionPageState extends State<ProvisionPage> {
       Where.folder =>
         'Give the computer a name. Its keys are then written into the '
             'folder you choose, the way rlq keeps them.',
+      Where.vigil =>
+        'Give the desktop a name. Its Vigil configuration is then written '
+            'into the folder you choose, paste it into Vigil or open it '
+            'there.',
     };
   }
 
@@ -212,6 +232,11 @@ class _ProvisionPageState extends State<ProvisionPage> {
 
     if (_toFolder) {
       _defaultFolder().ignore();
+    }
+
+    if (_toVigil) {
+      _mode = Mode.companion;
+      _defaultConfigFolder().ignore();
     }
   }
 
@@ -258,6 +283,10 @@ class _ProvisionPageState extends State<ProvisionPage> {
       return null;
     }
 
+    if (_toVigil && (_folder ?? '').isEmpty) {
+      return 'Choose a folder for the configuration.';
+    }
+
     if (_mode == Mode.cathedral) {
       final peer = int.tryParse(_peer.text.trim(), radix: 16);
       if (_peer.text.trim().length != 2 || peer == null || peer == 0) {
@@ -296,7 +325,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
       return 'A group number is up to 4 digits or letters a to f.';
     }
 
-    if (_mode != Mode.gospel) {
+    if (!_chatOnly) {
       final dns = _entries(_dns);
       if (dns.length > 4) {
         return 'Up to four DNS servers.';
@@ -361,11 +390,19 @@ class _ProvisionPageState extends State<ProvisionPage> {
         if (group.isNotEmpty) {
           out.writeln('liturgy_group ${group.padLeft(4, '0')}');
         }
+      case Mode.companion:
+        out.writeln('mode companion');
     }
 
-    final spi = _mode == Mode.cathedral
-        ? '${hex(kek, prefix: false)}${_peer.text.trim().toLowerCase()}'
-        : hex(kek, prefix: false);
+    var spi = hex(kek, prefix: false);
+
+    if (_mode == Mode.cathedral) {
+      spi = '$spi${_peer.text.trim().toLowerCase()}';
+    }
+
+    if (_mode == Mode.companion) {
+      spi = kek == 1 ? '0102' : '0201';
+    }
 
     final cathedral = _cathedral!;
     final port = int.parse(cathedral.split(':').last);
@@ -388,7 +425,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
       out.writeln('p2p no');
     }
 
-    if (!_remembrance && _mode != Mode.gospel) {
+    if (!_remembrance && !_chatOnly) {
       out.writeln('cathedral_remembrance no');
     }
 
@@ -402,7 +439,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
       }
     }
 
-    if (_mode != Mode.gospel) {
+    if (!_chatOnly) {
       for (final d in _entries(_dns)) {
         out.writeln('dns $d');
       }
@@ -412,7 +449,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
       out.writeln('shroud yes');
     }
 
-    if (!_blockIpv6 && _mode != Mode.gospel) {
+    if (!_blockIpv6 && !_chatOnly) {
       out.writeln('block_ipv6 no');
     }
 
@@ -427,6 +464,15 @@ class _ProvisionPageState extends State<ProvisionPage> {
     }
 
     if (_remote) {
+      if (_mode == Mode.companion && _farKek() != 2) {
+        notify(
+          'Covenant joins the flock itself to hand over the secret words, '
+          'the desktop must get KEK 02. Add the desktop first while the '
+          'flock is empty, then the phone.',
+        );
+        return;
+      }
+
       _far();
       return;
     }
@@ -436,6 +482,20 @@ class _ProvisionPageState extends State<ProvisionPage> {
     if (_toFolder && _reg == null) {
       try {
         await Core.instance.keysCheck(_folder!, widget.flock);
+      } on CoreError catch (e) {
+        notify(e.message);
+        return;
+      }
+    }
+
+    if (_toVigil && _reg == null) {
+      if (_nextKek(0) != 2) {
+        notify(_vigilKek);
+        return;
+      }
+
+      try {
+        await Core.instance.configCheck(_folder!, widget.flock);
       } on CoreError catch (e) {
         notify(e.message);
         return;
@@ -481,6 +541,12 @@ class _ProvisionPageState extends State<ProvisionPage> {
         _kek ??= await _r.approve(widget.flock, _reg!.id);
       }
 
+      _companionCheck(_kek!);
+
+      if (_toVigil && _kek != 2) {
+        throw ApiError(_vigilKek);
+      }
+
       if (_mode == Mode.cathedral && _peerNext) {
         final next = _nextKek(_kek!);
         if (next == null) {
@@ -520,6 +586,34 @@ class _ProvisionPageState extends State<ProvisionPage> {
         notify(
           'The keys are in $dir. It can take up to a minute before '
           'Reliquary accepts the new device.',
+          warn: false,
+        );
+        navigatorKey.currentState?.pop();
+        return;
+      }
+
+      if (_toVigil) {
+        final path = await Core.instance.provisionConfig(
+          flock: widget.flock,
+          kek: _kek!,
+          cosk: _cosk!,
+          secret: _reg!.secret,
+          config: _config(_reg!.id, _kek!),
+          folder: _folder!,
+        );
+
+        _cosk = null;
+        await _r.nameDevice(
+          widget.flock,
+          _reg!.id,
+          _instance.text.trim(),
+          mode: _mode.name,
+        );
+
+        notify(
+          'The configuration is in $path, paste it into Vigil or open it '
+          'there and remove the file afterwards. It can take up to a '
+          'minute before Reliquary accepts the new device.',
           warn: false,
         );
         navigatorKey.currentState?.pop();
@@ -605,10 +699,25 @@ class _ProvisionPageState extends State<ProvisionPage> {
                   );
                 }
 
+                _companionCheck(kek);
+
                 return _config(device, kek);
               },
       ),
     ).ignore();
+  }
+
+  static const _vigilKek =
+      'Vigil on a desktop gets KEK 02 and its phone KEK 01, they need a '
+      'flock of their own. Add the phone first, then the desktop.';
+
+  void _companionCheck(int kek) {
+    if (_mode == Mode.companion && kek != 1 && kek != 2) {
+      throw ApiError(
+        'A companion flock holds the phone (KEK 01) and its desktop '
+        '(KEK 02) only, set them up in a flock of their own.',
+      );
+    }
   }
 
   void _fail(String message) {
@@ -676,8 +785,15 @@ class _ProvisionPageState extends State<ProvisionPage> {
       if (d.approved) d,
   ];
 
-  /// The key number Reliquary hands out after [self], it always picks the
-  /// lowest one that is free.
+  int? _farKek() {
+    final self = _nextKek(0);
+    if (self == null) {
+      return null;
+    }
+
+    return _nextKek(self);
+  }
+
   int? _nextKek(int self) {
     final used = {for (final d in _approved) d.kek, self};
 
@@ -734,6 +850,30 @@ class _ProvisionPageState extends State<ProvisionPage> {
       }
     } on CoreError catch (e) {
       notify(e.message);
+    }
+  }
+
+  Future<void> _defaultConfigFolder() async {
+    try {
+      final folder = await Core.instance.configFolder();
+      if (mounted) {
+        setState(() => _folder ??= folder);
+      }
+    } on CoreError catch (e) {
+      notify(e.message);
+    }
+  }
+
+  Future<void> _pickConfigFolder() async {
+    try {
+      final folder = await Core.instance.configFolderPick();
+      if (folder != null && mounted) {
+        setState(() => _folder = folder);
+      }
+    } on CoreError catch (e) {
+      if (!e.cancelled) {
+        notify(e.message);
+      }
     }
   }
 
@@ -849,33 +989,55 @@ class _ProvisionPageState extends State<ProvisionPage> {
                 style: Styles.detail,
               ),
             ],
-            if (_where != Where.computer && !_toFolder) ...[
-              GroupLabel('How it connects', index: ++index),
-              Choice<Mode>(
-                options: [
-                  for (final m in [
-                    Mode.cathedral,
-                    Mode.liturgy,
-                    Mode.gospel,
-                    if (_advanced || _locked == Mode.tier6) Mode.tier6,
-                  ])
-                    if (_locked == null || m == _locked) (m, modeLabel(m)),
-                ],
-                value: _mode,
-                onChanged: (m) => setState(() => _mode = m),
+            if (_toVigil) ...[
+              const Notice(
+                kind: NoticeKind.warn,
+                text:
+                    'The configuration file holds the KEK of the desktop in '
+                    'plaintext, anyone who can read it can join this flock '
+                    'as the desktop. Remove it once Vigil has taken it in.',
               ),
-              Text(_modeText(), style: Styles.detail),
-              ..._modeFields(() => ++index),
+              GroupLabel('Folder', index: ++index),
+              LinkList(
+                rows: [
+                  LinkRow(
+                    _folder ?? 'Choose a folder',
+                    _pickConfigFolder,
+                    detail: 'Where the configuration is written',
+                  ),
+                ],
+              ),
+              Text(
+                'It is written as vigil-${widget.flock}.conf inside it.',
+                style: Styles.detail,
+              ),
+            ],
+            if (_where != Where.computer && !_toFolder) ...[
+              if (!_toVigil) ...[
+                GroupLabel('How it connects', index: ++index),
+                Choice<Mode>(
+                  options: [
+                    for (final m in [
+                      Mode.cathedral,
+                      Mode.liturgy,
+                      Mode.gospel,
+                      Mode.companion,
+                      Mode.tier6,
+                    ])
+                      if (_locked == null || m == _locked) (m, modeLabel(m)),
+                  ],
+                  value: _mode,
+                  rows: 2,
+                  onChanged: (m) => setState(() => _mode = m),
+                ),
+                Text(_modeText(), style: Styles.detail),
+                ..._modeFields(() => ++index),
+              ],
               const SizedBox(height: 4),
               SwitchRow(
                 text: 'Show advanced settings',
                 on: _advanced,
-                onChanged: (v) => setState(() {
-                  _advanced = v;
-                  if (!v && _mode == Mode.tier6 && _locked == null) {
-                    _mode = Mode.cathedral;
-                  }
-                }),
+                onChanged: (v) => setState(() => _advanced = v),
               ),
               if (_advanced) ..._advancedFields(() => ++index),
             ],
@@ -914,6 +1076,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
     Mode.gospel =>
       'Only calls and chat in the Vigil app, the rest of the device is not '
           'connected.',
+    Mode.companion => 'Links a phone to a desktop instance of Vigil.',
   };
 
   List<Widget> _modeFields(int Function() next) {
@@ -1017,6 +1180,8 @@ class _ProvisionPageState extends State<ProvisionPage> {
             style: Styles.detail,
           ),
         ];
+      case Mode.companion:
+        return const [];
     }
   }
 
@@ -1047,7 +1212,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
           keyboard: addressKeyboard,
         ),
       ],
-      if (_mode != Mode.gospel) ...[
+      if (!_chatOnly) ...[
         GroupLabel('DNS servers', index: next()),
         Field(controller: _dns, hint: 'Optional, one per line', lines: 2),
       ],
@@ -1066,7 +1231,7 @@ class _ProvisionPageState extends State<ProvisionPage> {
         on: _p2p,
         onChanged: (v) => setState(() => _p2p = v),
       ),
-      if (_mode != Mode.gospel) ...[
+      if (!_chatOnly) ...[
         SwitchRow(
           text:
               'Learn about the other cathedrals, to switch over when one '

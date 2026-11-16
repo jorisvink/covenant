@@ -72,18 +72,33 @@ class Choice<T> extends StatelessWidget {
     required this.options,
     required this.value,
     required this.onChanged,
+    this.rows = 1,
   });
 
   final List<(T, String)> options;
   final T value;
   final ValueChanged<T> onChanged;
+  final int rows;
 
   @override
   Widget build(BuildContext context) {
+    final per = (options.length / rows).ceil();
+
+    return Column(
+      children: [
+        for (var r = 0; r * per < options.length; r++) ...[
+          if (r > 0) const SizedBox(height: 6),
+          _row(r * per, (r * per + per).clamp(0, options.length)),
+        ],
+      ],
+    );
+  }
+
+  Widget _row(int from, int to) {
     return Row(
       children: [
-        for (var i = 0; i < options.length; i++) ...[
-          if (i > 0) const SizedBox(width: 6),
+        for (var i = from; i < to; i++) ...[
+          if (i > from) const SizedBox(width: 6),
           Expanded(
             child: Pressable(
               onTap: () => onChanged(options[i].$1),

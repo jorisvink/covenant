@@ -51,9 +51,13 @@
 #define ASK_RECOVERY		(1 << 2)
 #define ASK_PASSPHRASE		(1 << 3)
 #define ASK_TARGET		(1 << 4)
+#define ASK_CONFIG		(1 << 5)
 
 /* The length of a device (cathedral id) as hex. */
 #define DEVICE_HEX_LEN		8
+
+/* The file a vigil configuration is written into, under the flock. */
+#define CONFIG_FILE		"vigil-%s.conf"
 
 /*
  * The files rlq keeps for a device, in the order we write them. The
@@ -130,6 +134,7 @@ static int		keys_mkdir(struct job *, const char *);
 static int		keys_joined(struct job *, const char *);
 static int		job_unlock(struct job *, u_int8_t *, size_t);
 static int		keys_absent(struct job *, const struct keys_files *);
+static int		config_absent(struct job *, const char *);
 static int		keys_write(struct job *, const char *,
 			    const void *, size_t);
 static int		keys_paths(struct job *, struct keys_files *,
@@ -144,6 +149,7 @@ static int		keys_save(struct job *, const struct keys_files *,
 			    const struct covenant_device_keys *);
 
 static int		arg_keys_dir(struct job *, char *, size_t);
+static int		arg_config_path(struct job *, char *, size_t);
 static const char	*arg_string(struct job *, const char *, int);
 static const char	*arg_file(struct job *, FlValue *, char *, size_t);
 static int		arg_flock(struct job *, char *, size_t, u_int64_t *);
@@ -162,7 +168,7 @@ static FlValue	*op_handoff(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_cosk_new(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_generate(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_cosk_drop(struct job *, const u_int8_t *, size_t);
-static FlValue	*op_keys_pick(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_folder_pick(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_file_read(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_provision(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_passphrase(struct job *, const u_int8_t *, size_t);
@@ -170,6 +176,8 @@ static FlValue	*op_keys_check(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_file_write(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_run(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_keys_folder(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_config_check(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_config_folder(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_file_delete(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_stop(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_remote_start(struct job *, const u_int8_t *, size_t);
@@ -177,6 +185,7 @@ static FlValue	*op_remote_words(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_import_ambry(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_import_backup(struct job *, const u_int8_t *, size_t);
 static FlValue	*op_provision_keys(struct job *, const u_int8_t *, size_t);
+static FlValue	*op_provision_config(struct job *, const u_int8_t *, size_t);
 static FlValue	*ambry_bundle(struct job *, const u_int8_t *, size_t,
 		    const u_int8_t *, size_t, int64_t);
 
@@ -202,11 +211,17 @@ static const struct op ops[] = {
 	    "Unlock your KEKs to add a new device.", op_provision },
 	{ KEY_NONE, 0, "handoffAvailable", NULL, op_handoff },
 	{ KEY_NONE, 0, "keysFolder", NULL, op_keys_folder },
-	{ KEY_NONE, ASK_TARGET, "keysFolderPick", NULL, op_keys_pick },
+	{ KEY_NONE, ASK_TARGET, "keysFolderPick", NULL, op_folder_pick },
 	{ KEY_NONE, 0, "keysCheck", NULL, op_keys_check },
 	{ KEY_OPEN, 0, "provisionKeys",
 	    "Unlock your KEKs to write the keys of the new device.",
 	    op_provision_keys },
+	{ KEY_NONE, 0, "configFolder", NULL, op_config_folder },
+	{ KEY_NONE, ASK_CONFIG, "configFolderPick", NULL, op_folder_pick },
+	{ KEY_NONE, 0, "configCheck", NULL, op_config_check },
+	{ KEY_OPEN, 0, "provisionConfig",
+	    "Unlock your KEKs to write the configuration of the new device.",
+	    op_provision_config },
 	{ KEY_NONE, 0, "remoteWords", NULL, op_remote_words },
 	{ KEY_OPEN, 0, "remoteStart",
 	    "Unlock your KEKs to send the device its keys.", op_remote_start },
@@ -375,6 +390,15 @@ channel_call(FlMethodChannel *channel, FlMethodCall *call, gpointer arg)
 
 		if (runner_pick(window, "Choose the folder for the keys",
 		    1, start, &job->source) == -1) {
+			job_error(job, "cancelled", "No folder was chosen.");
+			job_done(job);
+			return;
+		}
+	}
+
+	if (job->op->ask & ASK_CONFIG) {
+		if (runner_pick(window, "Choose the folder for the configuration",
+		    1, getenv("HOME"), &job->source) == -1) {
 			job_error(job, "cancelled", "No folder was chosen.");
 			job_done(job);
 			return;
@@ -1116,10 +1140,10 @@ op_keys_folder(struct job *job, const u_int8_t *vk, size_t vk_len)
 }
 
 /*
- * Return the folder the user picked for the keys of a device.
+ * Return the folder the user picked.
  */
 static FlValue *
-op_keys_pick(struct job *job, const u_int8_t *vk, size_t vk_len)
+op_folder_pick(struct job *job, const u_int8_t *vk, size_t vk_len)
 {
 	return (fl_value_new_string(job->source));
 }
@@ -1218,6 +1242,110 @@ op_provision_keys(struct job *job, const u_int8_t *vk, size_t vk_len)
 		return (NULL);
 
 	return (fl_value_new_string(dir));
+}
+
+/*
+ * Get the folder we write a vigil configuration into by default, the
+ * home of the user.
+ */
+static FlValue *
+op_config_folder(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	const char	*home;
+
+	if ((home = getenv("HOME")) == NULL) {
+		job_error(job, "failed", "Your home is not set.");
+		return (NULL);
+	}
+
+	return (fl_value_new_string(home));
+}
+
+/*
+ * Check that the folder does not already hold a vigil configuration
+ * for the flock, before we register a new device.
+ */
+static FlValue *
+op_config_check(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	char		path[PATH_MAX];
+
+	if (arg_config_path(job, path, sizeof(path)) == -1)
+		return (NULL);
+
+	if (config_absent(job, path) == -1)
+		return (NULL);
+
+	return (NULL);
+}
+
+/*
+ * Provision a device into its vigil configuration, written as a plain
+ * file into the given folder for vigil on a desktop to take in. The
+ * file holds every key of the device. Returns the path of the file.
+ */
+static FlValue *
+op_provision_config(struct job *job, const u_int8_t *vk, size_t vk_len)
+{
+	struct covenant_device	dev;
+	int			ret;
+	char			*config;
+	int64_t			kek, handle;
+	char			path[PATH_MAX];
+	char			flock[FLOCK_HEX_LEN + 1];
+	u_int8_t		sealed[COVENANT_KEKS_SEALED_LEN];
+
+	if (arg_keks(job, flock, sizeof(flock), sealed, sizeof(sealed)) == -1)
+		return (NULL);
+
+	if (arg_int(job, "kek", 1, COVENANT_KEK_COUNT, &kek) == -1)
+		return (NULL);
+
+	if (arg_int(job, "handle", 0, UINT32_MAX, &handle) == -1)
+		return (NULL);
+
+	if (arg_config_path(job, path, sizeof(path)) == -1)
+		return (NULL);
+
+	if (config_absent(job, path) == -1)
+		return (NULL);
+
+	memset(&dev, 0, sizeof(dev));
+
+	if ((dev.config = arg_string(job, "config", 0)) == NULL)
+		return (NULL);
+
+	if ((dev.cathedral_secret = arg_string(job, "secret", 0)) == NULL)
+		return (NULL);
+
+	dev.secret = vk;
+	dev.secret_len = vk_len;
+
+	dev.keks = sealed;
+	dev.keks_len = sizeof(sealed);
+
+	dev.kek = kek;
+	dev.cosk = handle;
+
+	config = runner_alloc(COVENANT_CONFIG_MAX_LEN);
+
+	if (covenant_provision_config(ctx, &dev, config,
+	    COVENANT_CONFIG_MAX_LEN) == -1) {
+		runner_free(config, COVENANT_CONFIG_MAX_LEN);
+		job_core_error(job);
+		return (NULL);
+	}
+
+	ret = file_write(path, config, strlen(config));
+	runner_free(config, COVENANT_CONFIG_MAX_LEN);
+
+	if (ret == -1) {
+		job_error(job, "failed", "Failed to save %s: %s",
+		    path, strerror(errno));
+		return (NULL);
+	}
+
+	return (fl_value_new_string(path));
 }
 
 /*
@@ -1825,6 +1953,50 @@ arg_keys_dir(struct job *job, char *dir, size_t len)
 }
 
 /*
+ * Get the path of the vigil configuration for the flock in the folder
+ * the call names.
+ */
+static int
+arg_config_path(struct job *job, char *path, size_t len)
+{
+	u_int64_t	id;
+	int		ret;
+	const char	*folder;
+	char		flock[FLOCK_HEX_LEN + 1];
+	char		name[sizeof(CONFIG_FILE) + FLOCK_HEX_LEN];
+
+	PRECOND(job != NULL);
+	PRECOND(path != NULL);
+	PRECOND(len > 0);
+
+	if (arg_flock(job, flock, sizeof(flock), &id) == -1)
+		return (-1);
+
+	if ((folder = arg_string(job, "folder", 0)) == NULL)
+		return (-1);
+
+	if (folder[0] != '/') {
+		job_error(job, "invalid",
+		    "Choose a folder for the configuration.");
+		return (-1);
+	}
+
+	ret = snprintf(name, sizeof(name), CONFIG_FILE, flock);
+	if (ret < 0 || (size_t)ret >= sizeof(name)) {
+		job_error(job, "failed", "The path is too long.");
+		return (-1);
+	}
+
+	ret = snprintf(path, len, "%s/%s", folder, name);
+	if (ret < 0 || (size_t)ret >= len) {
+		job_error(job, "failed", "The path is too long.");
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
  * Get an integer argument of a call within min and max.
  */
 static int
@@ -2226,6 +2398,33 @@ keys_absent(struct job *job, const struct keys_files *paths)
 	}
 
 	return (0);
+}
+
+/*
+ * Make sure there is nothing at path yet, we never write a configuration
+ * over a file that is already there.
+ */
+static int
+config_absent(struct job *job, const char *path)
+{
+	struct stat	st;
+
+	PRECOND(job != NULL);
+	PRECOND(path != NULL);
+
+	if (lstat(path, &st) == -1) {
+		if (errno == ENOENT)
+			return (0);
+
+		job_error(job, "failed", "Failed to check %s: %s",
+		    path, strerror(errno));
+		return (-1);
+	}
+
+	job_error(job, "exists",
+	    "%s is already there, nothing was written over it.", path);
+
+	return (-1);
 }
 
 /*
